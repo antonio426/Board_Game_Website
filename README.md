@@ -1,25 +1,86 @@
-# Board_Game_Website
-本專案為一個專為桌遊愛好者打造的智慧桌遊探索與推薦平台。平台不僅提供結構化的桌遊玩法說明、規則速查與教學引導，更以個人化推薦系統（Recommendation System）為核心技術，透過分析會員的評分歷史、遊玩偏好（遊戲機制、主題、難度與遊玩人數），即時推薦最適配的類似桌遊，解決玩家「選遊戲耗時」與「聚會不知道玩什麼」的痛點。
+# Board Game Explorer — 智慧桌遊推薦平台
 
-核心功能
-桌遊玩法與規則引導（Game Rules & Tutorials）
+中英雙語智慧桌遊推薦平台，透過多維度推薦引擎 + AI 對話搜尋 + 引導式問卷，讓桌遊愛好者與新手都能快速找到最適合的桌遊。
 
-結構化圖文規則： 將複雜規則拆解為「設置」、「核心流程」、「獲勝條件」等模組，方便快速查閱。
+## 技術架構
 
-參數化屬性分類： 完整標註遊戲人數、遊玩時間、BGG 重度（難度評分）、核心機制（如：工人放置、牌庫構築、陣營輪抽）。
+| 層級 | 技術 | 說明 |
+|------|------|------|
+| 前端 | Next.js 15 (App Router) + next-intl | SSR/SSG、i18n、SEO |
+| 後端 API | Python FastAPI | 推薦引擎、爬蟲排程、AI 對話 |
+| 資料庫 | MongoDB 7 | 桌遊/評論/用戶結構化資料 |
+| 向量庫 | Qdrant | 嵌入搜尋、語意推薦 |
+| 快取 | Redis 7 | 熱門查詢、session |
 
-核心焦點：多維度智慧推薦系統（Recommendation Engine）
+## 快速開始
 
-基於內容推薦（Content-Based Filtering）： 提取桌遊的特徵向量（如機制標籤、主題、複雜度），計算遊戲間的餘弦相似度（Cosine Similarity），即時產出「玩過這款的人也會喜歡」的同類型桌遊清單。
+### 1. 啟動基礎服務
 
-協同過濾推薦（Collaborative Filtering）： 分析相似會員的評分與收藏行為，挖掘潛在感興趣但尚未接觸的冷門神作。
+```bash
+docker compose up -d
+```
 
-混合推薦與自適應篩選（Hybrid Approach）： 結合情境篩選（如：今晚聚會 4 人、時間 60 分鐘內），動態加權運算，給出最具時效性的推薦結果。
+啟動 MongoDB (27017)、Qdrant (6333)、Redis (6379)。
 
-冷啟動策略（Cold Start）： 新會員註冊時透過喜好標籤引導（Onboarding Tags），快速建立初始偏好模型。
+### 2. 啟動後端
 
-會員喜好與收藏系統（User Profiles & Tracking）
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # 編輯 .env 填入 OAuth 設定
+uvicorn app.main:app --reload
+```
 
-建立個人化桌遊收藏清單（想玩、已擁有、最愛）。
+後端運行在 http://localhost:8000，API 文件 http://localhost:8000/docs
 
-多維度評分與評論機制，持續回饋並優化推薦演算法的準確度。
+### 3. 啟動前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端運行在 http://localhost:3000
+
+## 環境變數
+
+| 變數 | 說明 | 預設值 |
+|------|------|--------|
+| `MONGO_URI` | MongoDB 連線字串 | `mongodb://boardgame:boardgame_dev@localhost:27017` |
+| `QDRANT_URL` | Qdrant URL | `http://localhost:6333` |
+| `REDIS_URL` | Redis URL | `redis://localhost:6379/0` |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | — |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | — |
+| `GITHUB_CLIENT_ID` | GitHub OAuth Client ID | — |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth Secret | — |
+| `JWT_SECRET` | JWT 簽名密鑰 | `change-this-to-a-random-secret` |
+| `FRONTEND_URL` | 前端 URL | `http://localhost:3000` |
+| `BACKEND_URL` | 後端 URL | `http://localhost:8000` |
+
+## 專案結構
+
+```
+board-game-website/
+├── docker-compose.yml        # MongoDB + Qdrant + Redis
+├── backend/                  # FastAPI
+│   ├── app/
+│   │   ├── main.py           # App entry, CORS, routers
+│   │   ├── core/             # Config, database, security
+│   │   ├── api/v1/           # REST endpoints (health, auth)
+│   │   └── models/           # Pydantic / MongoDB models
+│   ├── requirements.txt
+│   ├── .env.example
+│   └── Dockerfile
+├── frontend/                 # Next.js 15
+│   ├── src/
+│   │   ├── app/[locale]/     # Locale-routed pages
+│   │   ├── components/      # Navbar, Footer, LoginButton
+│   │   ├── hooks/           # useAuth
+│   │   ├── i18n/            # next-intl config + translations
+│   │   └── lib/             # API client
+│   └── package.json
+└── README.md
+```
