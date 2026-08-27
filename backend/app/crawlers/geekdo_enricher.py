@@ -47,9 +47,12 @@ def _pick_cjk_name(alternatenames: list[dict]) -> Optional[str]:
 def _pick_link_names(links: dict, link_type: str) -> list[str]:
     out = []
     for entry in links.get(link_type, []) or []:
-        n = entry.get("name")
-        if n:
-            out.append(n)
+        if isinstance(entry, str):
+            out.append(entry)
+        elif isinstance(entry, dict):
+            n = entry.get("name")
+            if n:
+                out.append(n)
     return out
 
 
@@ -133,6 +136,7 @@ async def _process_one(sem, client, db, bgg_id: int, stats: dict) -> None:
 
             update = _parse_game_payload(payload, _id)
             update.pop("bgg_id", None)
+            update["last_enriched_at"] = datetime.now(timezone.utc)
 
             if not update:
                 stats["skipped"] += 1

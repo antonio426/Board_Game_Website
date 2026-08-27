@@ -210,3 +210,39 @@ async def enrich_geekdo(
         "min_rank": min_rank,
         "max_rank": max_rank,
     }
+
+
+@router.post("/zhuoyouku-enrich")
+async def enrich_zhuoyouku(
+    background_tasks: BackgroundTasks,
+    limit: int = 100,
+    only_missing_zh: bool = True,
+):
+    """Enrich board games with Chinese data from zhuoyouku.com."""
+    if _crawl_status["running"]:
+        return {"status": "already_running"}
+
+    _crawl_status["running"] = True
+    _crawl_status["progress"] = "enriching_zh_from_zhuoyouku"
+    _crawl_status["count"] = 0
+
+    async def _run():
+        try:
+            from app.crawlers.zhuoyouku_enricher import enrich_from_zhuoyouku
+            stats = await enrich_from_zhuoyouku(
+                limit=limit,
+                only_missing_zh=only_missing_zh,
+            )
+            _crawl_status["count"] = stats.get("updated", 0)
+            _crawl_status["progress"] = "done"
+        except Exception as e:
+            _crawl_status["progress"] = f"error: {e}"
+        finally:
+            _crawl_status["running"] = False
+
+    background_tasks.add_task(_run)
+    return {
+        "status": "started",
+        "limit": limit,
+        "only_missing_zh": only_missing_zh,
+    }
