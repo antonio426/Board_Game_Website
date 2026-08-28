@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
+import { apiFetch } from "@/lib/api";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api/v1";
 
 interface Game {
   bgg_id: number;
@@ -25,17 +24,15 @@ interface Game {
 
 async function fetchGames(path: string): Promise<Game[]> {
   try {
-    const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
-    if (!res.ok) return [];
-    const data = await res.json();
+    const data = await apiFetch<{ recommendations?: Game[]; games?: Game[] }>(path);
     return data.recommendations || data.games || [];
   } catch {
     return [];
   }
 }
 
-function GameCard({ game }: { game: Game }) {
-  const name = game.name_zh || game.name_en;
+function GameCard({ game, locale }: { game: Game; locale: string }) {
+  const name = locale === "zh" ? (game.name_zh || game.name_en) : (game.name_en || game.name_zh);
   return (
     <Link href={`/games/${game.bgg_id}`} className="game-card group block">
       <div className="aspect-[4/3] overflow-hidden" style={{ background: 'var(--color-muted)' }}>
@@ -88,6 +85,7 @@ function SectionHeader({ color, title }: { color: string; title: string }) {
 
 export default function HomeClient() {
   const t = useTranslations("home");
+  const locale = useLocale();
   const [topRated, setTopRated] = useState<Game[]>([]);
   const [forYou, setForYou] = useState<Game[]>([]);
   const [quickPicks, setQuickPicks] = useState<Game[]>([]);
@@ -111,7 +109,7 @@ export default function HomeClient() {
         <section>
           <SectionHeader color="#D97706" title={t("forYou")} />
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {forYou.map((g) => <GameCard key={g.bgg_id} game={g} />)}
+            {forYou.map((g) => <GameCard key={g.bgg_id} game={g} locale={locale} />)}
           </div>
         </section>
       )}
@@ -119,14 +117,14 @@ export default function HomeClient() {
       <section>
         <SectionHeader color="#4ADE80" title={t("topRated")} />
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          {topRated.map((g) => <GameCard key={g.bgg_id} game={g} />)}
+          {topRated.map((g) => <GameCard key={g.bgg_id} game={g} locale={locale} />)}
         </div>
       </section>
 
       <section>
         <SectionHeader color="#A78BFA" title={t("quickPicks")} />
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          {quickPicks.map((g) => <GameCard key={g.bgg_id} game={g} />)}
+          {quickPicks.map((g) => <GameCard key={g.bgg_id} game={g} locale={locale} />)}
         </div>
       </section>
 
@@ -134,19 +132,19 @@ export default function HomeClient() {
         <SectionHeader color="#60A5FA" title="Quick Start" />
         <div className="grid gap-4 sm:grid-cols-3">
           <QuickLink
-            href="/recommendations/context?players=2"
+            href="/games?min_players=2"
             color="#D97706"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" strokeWidth="1.5"><circle cx="9" cy="7" r="3"/><circle cx="15" cy="7" r="3"/><path d="M5 21v-2a4 4 0 014-4h0M19 21v-2a4 4 0 00-4-4h0"/></svg>}
             label={t("quick2p")}
           />
           <QuickLink
-            href="/recommendations/context?players=4&playtime=60"
+            href="/games?min_players=4&max_playtime=60"
             color="#15803D"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>}
             label={t("quickParty")}
           />
           <QuickLink
-            href="/recommendations/context?max_weight=2&playtime=30"
+            href="/games?max_weight=2&max_playtime=30"
             color="#7C3AED"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>}
             label={t("quickLight")}

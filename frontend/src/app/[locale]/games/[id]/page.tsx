@@ -19,8 +19,8 @@ interface Game {
   bgg_rank: number;
   bgg_weight: number;
   users_rated: number;
-  categories: { id: number; name: string }[];
-  mechanics: { id: number; name: string }[];
+  categories: { id: number; name: string; name_zh?: string }[];
+  mechanics: { id: number; name: string; name_zh?: string }[];
   expansions: { bgg_id: number; name: string }[];
   series: { bgg_id: number; name: string }[];
   designers: string[];
@@ -34,13 +34,15 @@ interface RecResponse {
 
 export default async function GameDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  let game: Game | null = null;
-  let similarGames: Game[] = [];
 
-  try {
-    game = await apiFetch<Game>(`/games/${id}`);
-  } catch {
-  }
+  // Fire both requests in parallel — total wait = max(t1, t2), not t1 + t2
+  const [gameResult, recResult] = await Promise.allSettled([
+    apiFetch<Game>(`/games/${id}`),
+    apiFetch<RecResponse>(`/recommendations/similar/${id}?top_k=6&method=hybrid`),
+  ]);
+
+  let game: Game | null = gameResult.status === "fulfilled" ? gameResult.value : null;
+  const similarGames: Game[] = recResult.status === "fulfilled" ? (recResult.value.recommendations || []) : [];
 
   if (!game || ("error" in game && (game as { error: string }).error === "not_found")) {
     return (
@@ -51,12 +53,6 @@ export default async function GameDetailPage({ params }: { params: Promise<{ id:
         <h1 className="font-display text-2xl tracking-wide">Game not found</h1>
       </main>
     );
-  }
-
-  try {
-    const recData = await apiFetch<RecResponse>(`/recommendations/similar/${id}?top_k=6&method=hybrid`);
-    similarGames = recData.recommendations || [];
-  } catch {
   }
 
   return <GameDetailClient game={game} similarGames={similarGames} />;

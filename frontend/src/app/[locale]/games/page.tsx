@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
@@ -22,8 +22,8 @@ interface Game {
   bgg_rank: number;
   bgg_weight: number;
   year_published: number;
-  categories: { id: number; name: string }[];
-  mechanics: { id: number; name: string }[];
+  categories: { id: number; name: string; name_zh?: string }[];
+  mechanics: { id: number; name: string; name_zh?: string }[];
 }
 
 interface GamesResponse {
@@ -49,19 +49,20 @@ interface FilterState {
 export default function GamesPage() {
   const t = useTranslations("games");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const [data, setData] = useState<GamesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterState>({
     page: 1, sort: "rank", min_players: "", max_playtime: "",
     min_weight: "", max_weight: "", category: "", mechanic: "", q: "",
   });
-  const [categories, setCategories] = useState<{ name: string; count: number }[]>([]);
-  const [mechanics, setMechanics] = useState<{ name: string; count: number }[]>([]);
+  const [categories, setCategories] = useState<{ name: string; name_zh: string; count: number }[]>([]);
+  const [mechanics, setMechanics] = useState<{ name: string; name_zh: string; count: number }[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ name: string; count: number }[]>("/games/categories").then(setCategories).catch(() => {});
-    apiFetch<{ name: string; count: number }[]>("/games/mechanics").then(setMechanics).catch(() => {});
+    apiFetch<{ name: string; name_zh: string; count: number }[]>("/games/categories").then(setCategories).catch(() => {});
+    apiFetch<{ name: string; name_zh: string; count: number }[]>("/games/mechanics").then(setMechanics).catch(() => {});
   }, []);
 
   const fetchGames = useCallback(async () => {
@@ -154,14 +155,14 @@ export default function GamesPage() {
             <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t("categoryFilter")}</label>
             <select value={filter.category} onChange={(e) => updateFilter("category", e.target.value)} className="w-full py-2 text-sm">
               <option value="">-</option>
-              {categories.map((c) => <option key={c.name} value={c.name}>{c.name} ({c.count})</option>)}
+              {categories.map((c) => <option key={c.name} value={c.name}>{locale === "zh" && c.name_zh ? c.name_zh : c.name} ({c.count})</option>)}
             </select>
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t("mechanicFilter")}</label>
             <select value={filter.mechanic} onChange={(e) => updateFilter("mechanic", e.target.value)} className="w-full py-2 text-sm">
               <option value="">-</option>
-              {mechanics.map((m) => <option key={m.name} value={m.name}>{m.name} ({m.count})</option>)}
+              {mechanics.map((m) => <option key={m.name} value={m.name}>{locale === "zh" && m.name_zh ? m.name_zh : m.name} ({m.count})</option>)}
             </select>
           </div>
         </div>

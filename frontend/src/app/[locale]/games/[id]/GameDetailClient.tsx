@@ -1,13 +1,12 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import { useState } from "react";
 import { useTrackView, useTrackActions } from "@/hooks/useTracking";
 import { useAuth } from "@/hooks/useAuth";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api/v1";
+import { apiFetch } from "@/lib/api";
 
 interface Game {
   bgg_id: number;
@@ -50,9 +49,10 @@ function StatBox({ label, value, accent }: { label: string; value: string; accen
 export default function GameDetailClient({ game, similarGames }: { game: Game; similarGames: Game[] }) {
   const t = useTranslations("common");
   const tp = useTranslations("profile");
-  const displayName = game.name_zh || game.name_en;
-  const altName = game.name_zh ? game.name_en : "";
-  const description = game.description_zh || game.description_en;
+  const locale = useLocale();
+  const displayName = locale === "zh" ? (game.name_zh || game.name_en) : (game.name_en || game.name_zh);
+  const altName = locale === "zh" ? (game.name_zh ? game.name_en : "") : (game.name_en ? game.name_zh : "");
+  const description = locale === "zh" ? (game.description_zh || game.description_en) : (game.description_en || game.description_zh);
   const { user } = useAuth();
   const track = useTrackActions();
 
@@ -66,12 +66,10 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
   const toggleFav = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_BASE}/actions/toggle`, {
+      const data = await apiFetch<{ status: string }>("/actions/toggle", {
         method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bgg_id: game.bgg_id, action_type: "favorite" }),
       });
-      const data = await res.json();
       setFavorited(data.status === "added");
     } catch {}
   };
@@ -79,12 +77,10 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
   const toggleOwn = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_BASE}/actions/toggle`, {
+      const data = await apiFetch<{ status: string }>("/actions/toggle", {
         method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bgg_id: game.bgg_id, action_type: "own" }),
       });
-      const data = await res.json();
       setOwned(data.status === "added");
     } catch {}
   };
@@ -157,31 +153,39 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
 
           {game.designers.length > 0 && (
             <div className="mt-4">
-              <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Designers: </span>
+              <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>{tp("designers")} </span>
               <span className="text-sm" style={{ color: '#CBD5E1' }}>{game.designers.join(", ")}</span>
             </div>
           )}
           {game.publishers.length > 0 && (
             <div className="mt-1">
-              <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>Publishers: </span>
+              <span className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>{tp("publishers")} </span>
               <span className="text-sm" style={{ color: '#CBD5E1' }}>{game.publishers.join(", ")}</span>
             </div>
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {game.categories.map((c) => (
-              <span key={c.id} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{c.name_zh || c.name}</span>
-            ))}
-            {game.mechanics.map((m) => (
-              <span key={m.id} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{m.name_zh || m.name}</span>
-            ))}
+            {game.categories.map((c, i) => {
+              const label = locale === "zh" ? (c.name_zh || c.name) : c.name;
+              const key = `cat-${c.id}-${c.name}`;
+              return (
+                <span key={key} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{label}</span>
+              );
+            })}
+            {game.mechanics.map((m, i) => {
+              const label = locale === "zh" ? (m.name_zh || m.name) : m.name;
+              const key = `mech-${m.id}-${m.name}`;
+              return (
+                <span key={key} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{label}</span>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {description && (
         <div className="mb-10">
-          <h2 className="mb-3 font-display text-xl tracking-wide">Description</h2>
+          <h2 className="mb-3 font-display text-xl tracking-wide">{t("description")}</h2>
           <div className="rounded-xl p-5 text-sm leading-relaxed whitespace-pre-line" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: '#CBD5E1' }}>{description}</div>
         </div>
       )}
@@ -214,7 +218,7 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
               >
                 <GameImage src={gameImageUrl(g)} alt={g.name_en} className="h-14 w-14 rounded-lg object-cover" />
                 <div>
-                  <div className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>{g.name_zh || g.name_en}</div>
+                  <div className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>{locale === "zh" ? (g.name_zh || g.name_en) : (g.name_en || g.name_zh)}</div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
                     ★ {g.bgg_rating} · {g.min_players}–{g.max_players} · {g.min_playtime}–{g.max_playtime}m
                   </div>

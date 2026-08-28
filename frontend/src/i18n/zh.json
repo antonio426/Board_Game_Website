@@ -16,12 +16,14 @@
     "mechanics": "機制",
     "expansions": "擴充",
     "similarGames": "相似遊戲",
+    "description": "遊戲說明",
     "min": "最少",
     "max": "最多"
   },
   "nav": {
     "home": "首頁",
     "games": "桌遊",
+    "explore": "探索",
     "survey": "問卷推薦",
     "chat": "AI 對話",
     "profile": "我的收藏"
@@ -56,7 +58,31 @@
     "getResults": "獲得推薦",
     "resultsTitle": "為你推薦",
     "bestMatch": "最佳匹配",
-    "retake": "重新填寫"
+    "retake": "重新填寫",
+    "categories": {
+      "thematic": "主題",
+      "strategy": "策略",
+      "party": "派對",
+      "family": "家庭",
+      "abstract": "抽象",
+      "cooperative": "合作",
+      "economic": "經濟",
+      "negotiation": "談判",
+      "adventure": "冒險",
+      "puzzle": "解謎"
+    },
+    "mechanics": {
+      "worker_placement": "工人擺放",
+      "deck_building": "牌庫構築",
+      "dice_rolling": "擲骰",
+      "tile_placement": "板塊放置",
+      "auction": "拍賣",
+      "drafting": "輪抽",
+      "set_collection": "套件收集",
+      "area_control": "區域控制",
+      "hidden_roles": "隱藏身分",
+      "push_your_luck": "考驗運氣"
+    }
   },
   "chat": {
     "title": "AI 桌遊顧問",
@@ -78,6 +104,8 @@
     "favorited": "已收藏",
     "own": "擁有",
     "owned": "已擁有",
+    "designers": "設計師：",
+    "publishers": "出版商：",
     "emptyCollection": "收藏是空的，開始探索吧！"
   },
   "games": {
@@ -100,5 +128,32 @@
     "page": "第",
     "of": "頁，共",
     "viewDetails": "查看詳情"
+  },
+  "explore": {
+    "title": "探索桌遊",
+    "semanticSearch": "語意搜尋",
+    "semanticSearchHint": "用自然語言描述你想找的遊戲",
+    "semanticPlaceholder": "例如：4人合作策略遊戲",
+    "textSearch": "文字搜尋",
+    "textPlaceholder": "依名稱搜尋...",
+    "filter": "篩選",
+    "sortBy": "排序",
+    "sortRating": "評分",
+    "sortRank": "排名",
+    "sortName": "名稱",
+    "sortWeight": "複雜度",
+    "sortYear": "年份",
+    "playersFilter": "人數",
+    "playtimeFilter": "時間（分鐘）",
+    "weightFilter": "複雜度",
+    "categoryFilter": "類別",
+    "mechanicFilter": "機制",
+    "prev": "上一頁",
+    "next": "下一頁",
+    "page": "第",
+    "of": "頁，共",
+    "viewDetails": "查看詳情",
+    "noResults": "找不到遊戲。試試調整搜尋或篩選條件。",
+    "searching": "搜尋中..."
   }
 }

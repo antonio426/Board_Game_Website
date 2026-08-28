@@ -16,12 +16,14 @@
     "mechanics": "Mechanics",
     "expansions": "Expansions",
     "similarGames": "Similar Games",
+    "description": "Description",
     "min": "min",
     "max": "max"
   },
   "nav": {
     "home": "Home",
     "games": "Games",
+    "explore": "Explore",
     "survey": "Survey",
     "chat": "AI Chat",
     "profile": "My Collection"
@@ -56,7 +58,31 @@
     "getResults": "Get Recommendations",
     "resultsTitle": "Your Recommendations",
     "bestMatch": "Best Match",
-    "retake": "Retake Quiz"
+    "retake": "Retake Quiz",
+    "categories": {
+      "thematic": "Thematic",
+      "strategy": "Strategy",
+      "party": "Party",
+      "family": "Family",
+      "abstract": "Abstract",
+      "cooperative": "Cooperative",
+      "economic": "Economic",
+      "negotiation": "Negotiation",
+      "adventure": "Adventure",
+      "puzzle": "Puzzle"
+    },
+    "mechanics": {
+      "worker_placement": "Worker Placement",
+      "deck_building": "Deck Building",
+      "dice_rolling": "Dice Rolling",
+      "tile_placement": "Tile Placement",
+      "auction": "Auction",
+      "drafting": "Drafting",
+      "set_collection": "Set Collection",
+      "area_control": "Area Control",
+      "hidden_roles": "Hidden Roles",
+      "push_your_luck": "Push Your Luck"
+    }
   },
   "chat": {
     "title": "AI Game Advisor",
@@ -78,6 +104,8 @@
     "favorited": "Favorited",
     "own": "Own",
     "owned": "Owned",
+    "designers": "Designers:",
+    "publishers": "Publishers:",
     "emptyCollection": "No games in your collection yet. Start exploring!"
   },
   "games": {
@@ -100,5 +128,32 @@
     "page": "Page",
     "of": "of",
     "viewDetails": "View Details"
+  },
+  "explore": {
+    "title": "Explore Games",
+    "semanticSearch": "Semantic Search",
+    "semanticSearchHint": "Describe what you're looking for in natural language",
+    "semanticPlaceholder": "e.g. cooperative strategy game for 4 players",
+    "textSearch": "Text Search",
+    "textPlaceholder": "Search by name...",
+    "filter": "Filter",
+    "sortBy": "Sort by",
+    "sortRating": "Rating",
+    "sortRank": "Rank",
+    "sortName": "Name",
+    "sortWeight": "Complexity",
+    "sortYear": "Year",
+    "playersFilter": "Players",
+    "playtimeFilter": "Playtime (min)",
+    "weightFilter": "Complexity",
+    "categoryFilter": "Category",
+    "mechanicFilter": "Mechanic",
+    "prev": "Previous",
+    "next": "Next",
+    "page": "Page",
+    "of": "of",
+    "viewDetails": "View Details",
+    "noResults": "No games found. Try adjusting your search or filters.",
+    "searching": "Searching..."
   }
 }

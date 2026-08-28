@@ -88,7 +88,7 @@ export default function ProfilePage() {
                     className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
                   >
-                    <GameImage src={gameImageUrl(it.game as Record<string, unknown>)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
+                    <GameImage src={gameImageUrl(it.game)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
                     <div>
                       <div className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>{it.game.name_zh || it.game.name_en}</div>
                       <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>★ {it.game.bgg_rating} · {it.game.min_players}-{it.game.max_players}</div>
@@ -111,7 +111,7 @@ export default function ProfilePage() {
                     className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
                   >
-                    <GameImage src={gameImageUrl(it.game as Record<string, unknown>)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
+                    <GameImage src={gameImageUrl(it.game)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
                     <div>
                       <div className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>{it.game.name_zh || it.game.name_en}</div>
                       <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>★ {it.game.bgg_rating}</div>
@@ -134,7 +134,7 @@ export default function ProfilePage() {
                     className="flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-white/[0.03]"
                     style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
                   >
-                    <GameImage src={gameImageUrl(it.game as Record<string, unknown>)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
+                    <GameImage src={gameImageUrl(it.game)} alt={it.game.name_en} className="h-14 w-14 rounded-lg object-cover" />
                     <div>
                       <div className="text-sm font-semibold" style={{ color: '#F1F5F9' }}>{it.game.name_zh || it.game.name_en}</div>
                       <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>My: {it.rating}/10 · BGG: ★ {it.game.bgg_rating}</div>

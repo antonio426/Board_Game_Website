@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
 
@@ -21,26 +21,26 @@ interface Game {
   min_playtime: number;
   max_playtime: number;
   bgg_weight: number;
-  categories: { name: string }[];
-  mechanics: { name: string }[];
+  categories: { id?: number; name: string; name_zh?: string }[];
+  mechanics: { id?: number; name: string; name_zh?: string }[];
 }
 
 const STEPS = ["players", "playtime", "weight", "preferences"] as const;
 
 const CATEGORIES = [
-  "Thematic", "Strategy", "Party", "Family", "Abstract",
-  "Cooperative", "Economic", "Negotiation", "Adventure", "Puzzle",
-];
+  "thematic", "strategy", "party", "family", "abstract",
+  "cooperative", "economic", "negotiation", "adventure", "puzzle",
+] as const;
 
 const MECHANICS = [
-  "Worker Placement", "Deck Building", "Dice Rolling", "Tile Placement",
-  "Auction", "Drafting", "Set Collection", "Area Control", "Hidden Roles",
-  "Push Your Luck",
-];
+  "worker_placement", "deck_building", "dice_rolling", "tile_placement",
+  "auction", "drafting", "set_collection", "area_control", "hidden_roles", "push_your_luck",
+] as const;
 
 export default function SurveyPage() {
   const t = useTranslations("survey");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const [step, setStep] = useState(0);
   const [players, setPlayers] = useState(4);
   const [playtime, setPlaytime] = useState(60);
@@ -81,7 +81,7 @@ export default function SurveyPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((g, i) => {
-              const name = g.name_zh || g.name_en;
+              const name = locale === "zh" ? (g.name_zh || g.name_en) : (g.name_en || g.name_zh);
               return (
                 <Link key={g.bgg_id} href={`/games/${g.bgg_id}`} className="game-card group relative">
                   {i === 0 && (
@@ -91,15 +91,15 @@ export default function SurveyPage() {
                     </div>
                   )}
                   <div className="flex gap-3 p-3">
-                    <GameImage src={gameImageUrl(g as Record<string, unknown>)} alt={name} className="h-20 w-20 rounded-lg object-cover" />
+                    <GameImage src={gameImageUrl(g)} alt={name} className="h-20 w-20 rounded-lg object-cover" />
                     <div className="flex-1 min-w-0">
                       <h3 className="truncate text-sm font-semibold" style={{ color: '#F1F5F9' }}>{name}</h3>
                       <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         ★ {g.bgg_rating} · {g.min_players}–{g.max_players} · {g.min_playtime}–{g.max_playtime}m
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1">
-                        {g.categories.slice(0, 2).map((c) => <span key={c.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{c.name}</span>)}
-                        {g.mechanics.slice(0, 2).map((m) => <span key={m.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{m.name}</span>)}
+                        {g.categories.slice(0, 2).map((c) => <span key={c.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{locale === "zh" ? (c.name_zh || c.name) : c.name}</span>)}
+                        {g.mechanics.slice(0, 2).map((m) => <span key={m.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{locale === "zh" ? (m.name_zh || m.name) : m.name}</span>)}
                       </div>
                     </div>
                   </div>
@@ -187,7 +187,7 @@ export default function SurveyPage() {
                     color: selectedCats.includes(c) ? '#fff' : '#CBD5E1',
                     border: `1px solid ${selectedCats.includes(c) ? '#15803D' : 'var(--color-border)'}`,
                   }}
-                >{c}</button>
+                >{t(`categories.${c}`)}</button>
               ))}
             </div>
             <h3 className="mb-2 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>{tc("mechanics")}</h3>
@@ -200,7 +200,7 @@ export default function SurveyPage() {
                     color: selectedMechs.includes(m) ? '#fff' : '#CBD5E1',
                     border: `1px solid ${selectedMechs.includes(m) ? '#D97706' : 'var(--color-border)'}`,
                   }}
-                >{m}</button>
+                >{t(`mechanics.${m}`)}</button>
               ))}
             </div>
           </div>

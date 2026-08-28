@@ -42,22 +42,19 @@ function gamePlaceholder(name: string) {
 
 const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://localhost:8001";
 
-export function gameImageUrl(game: Record<string, unknown>, preferThumbnail = true): string | null {
-  const localThumb = game.local_thumbnail as string | undefined;
-  const localImg = game.local_image as string | undefined;
-  const thumb = game.thumbnail as string | undefined;
-  const img = game.image as string | undefined;
+export function gameImageUrl(game: { local_thumbnail?: string; local_image?: string }, preferThumbnail = true): string | null {
+  const localThumb = game.local_thumbnail;
+  const localImg = game.local_image;
 
+  // Only use local paths — no external CDN fallback
   if (preferThumbnail) {
-    const path = localThumb || localImg || thumb || img || null;
+    const path = localThumb || localImg || null;
     if (path && path.startsWith("/")) return `${API_ORIGIN}${path}`;
-    if (path && path.startsWith("http")) return path;
-    return path;
+    return null;
   }
-  const path = localImg || localThumb || img || thumb || null;
+  const path = localImg || localThumb || null;
   if (path && path.startsWith("/")) return `${API_ORIGIN}${path}`;
-  if (path && path.startsWith("http")) return path;
-  return path;
+  return null;
 }
 
 export default function GameImage({
