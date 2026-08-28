@@ -118,12 +118,14 @@ class HybridRecommender:
         cat_counts: dict[str, int] = {}
         for cats in data.get("categories", []):
             for c in cats:
-                cat_counts[c["name"]] = cat_counts.get(c["name"], 0) + 1
+                cname = c["name"] if isinstance(c, dict) else c
+                cat_counts[cname] = cat_counts.get(cname, 0) + 1
 
         mech_counts: dict[str, int] = {}
         for mechs in data.get("mechanics", []):
             for m in mechs:
-                mech_counts[m["name"]] = mech_counts.get(m["name"], 0) + 1
+                mname = m["name"] if isinstance(m, dict) else m
+                mech_counts[mname] = mech_counts.get(mname, 0) + 1
 
         top_cats = sorted(cat_counts, key=cat_counts.get, reverse=True)[:5]
         top_mechs = sorted(mech_counts, key=mech_counts.get, reverse=True)[:5]

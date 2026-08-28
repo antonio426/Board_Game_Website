@@ -50,8 +50,8 @@ async def index_games(batch_size: int = 100):
         text_parts = [
             doc.get("name_en", ""),
             doc.get("name_zh", ""),
-            " ".join(c["name"] for c in doc.get("categories", [])),
-            " ".join(m["name"] for m in doc.get("mechanics", [])),
+            " ".join(c["name"] if isinstance(c, dict) else c for c in doc.get("categories", [])),
+            " ".join(m["name"] if isinstance(m, dict) else m for m in doc.get("mechanics", [])),
             (doc.get("description_en", "") or "")[:200],
         ]
         text = " ".join(p for p in text_parts if p).strip()

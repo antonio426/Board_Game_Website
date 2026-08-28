@@ -251,6 +251,177 @@ class BGGCrawler:
                 return 0
         return 0
 
+    async def search_bgg(self, name: str) -> list[dict]:
+        """Search BGG by name and return list of {bgg_id, name} matches."""
+        url = f"{BGG_API_BASE}/search?query={name}&type=boardgame,boardgameexpansion"
+        xml_text = await self._fetch(url)
+        if not xml_text:
+            return []
+        results = []
+        try:
+            root = ET.fromstring(xml_text)
+            for item in root.findall("item"):
+                bgg_id = int(item.get("id", 0))
+                name_en = ""
+                for n in item.findall("name"):
+                    if n.get("type") == "primary":
+                        name_en = n.get("value", "")
+                        break
+                if not name_en:
+                    for n in item.findall("name"):
+                        name_en = n.get("value", "")
+                        break
+                if bgg_id and name_en:
+                    results.append({"bgg_id": bgg_id, "name": name_en})
+        except ET.ParseError:
+            pass
+        return results
+
+    async def fetch_game_geekdo(self, bgg_id: int) -> dict | None:
+        """Fetch a single game via the unauthenticated Geekdo JSON API."""
+        url = f"https://api.geekdo.com/api/geekitems?objecttype=thing&objectid={bgg_id}"
+        try:
+            resp = await self.client.get(url, headers={
+                "Accept": "application/json, text/plain, */*",
+                "Referer": "https://boardgamegeek.com/",
+            })
+            if resp.status_code != 200:
+                print(f"Geekdo API HTTP {resp.status_code} for bgg_id={bgg_id}")
+                return None
+            data = resp.json()
+            item = data.get("item")
+            if not item:
+                return None
+            return self._parse_geekdo_item(item)
+        except Exception as e:
+            print(f"Geekdo fetch error for bgg_id={bgg_id}: {e}")
+            return None
+
+    def _parse_geekdo_item(self, item: dict) -> dict:
+        """Convert a Geekdo API item dict to our game_doc schema."""
+        bgg_id = int(item.get("objectid", 0))
+        name_en = item.get("name", "") or item.get("primaryname", "")
+        description = item.get("description", "")
+        year_published = int(item.get("yearpublished", 0) or 0)
+        min_players = int(item.get("minplayers", 0) or 0)
+        max_players = int(item.get("maxplayers", 0) or 0)
+        min_playtime = int(item.get("minplaytime", 0) or 0)
+        max_playtime = int(item.get("maxplaytime", 0) or 0)
+        min_age = int(item.get("minage", 0) or 0)
+
+        # Images — Geekdo uses multiple image URL keys
+        image = item.get("imageurl", "") or item.get("topimageurl", "") or ""
+        thumbnail = item.get("imageurl", "") or ""
+
+        # Links — categories, mechanics, designers, publishers
+        links = item.get("links", {})
+        categories = []
+        mechanics = []
+        designers = []
+        publishers = []
+        expansions = []
+        series = []
+
+        for cat in links.get("boardgamecategory", []):
+            categories.append({"id": int(cat.get("objectid", 0)), "name": cat.get("name", "")})
+        for mech in links.get("boardgamemechanic", []):
+            mechanics.append({"id": int(mech.get("objectid", 0)), "name": mech.get("name", "")})
+        for des in links.get("boardgamedesigner", []):
+            designers.append(des.get("name", ""))
+        for pub in links.get("boardgamepublisher", []):
+            publishers.append(pub.get("name", ""))
+        for exp in links.get("boardgameexpansion", []):
+            expansions.append({"bgg_id": int(exp.get("objectid", 0)), "name": exp.get("name", "")})
+        for fam in links.get("boardgamefamily", []):
+            series.append({"bgg_id": int(fam.get("objectid", 0)), "name": fam.get("name", "")})
+
+        # Stats — Geekdo itemdata may have rank/rating; fall back to 0
+        itemdata = item.get("itemdata", {}) or {}
+        bgg_rank = int(itemdata.get("boardgame_rank", 99999) or 99999)
+        bgg_rating = float(itemdata.get("avg_rating", 0) or 0)
+        bgg_weight = float(itemdata.get("avg_weight", 0) or 0)
+        users_rated = int(itemdata.get("num_votes", 0) or 0)
+
+        # If itemdata is empty, try top-level stats fields
+        if not itemdata:
+            bgg_rating = float(item.get("avg_rating", 0) or 0)
+            users_rated = int(item.get("num_votes", 0) or 0)
+
+        return {
+            "bgg_id": bgg_id,
+            "name_en": name_en,
+            "name_zh": "",
+            "description_en": description,
+            "description_zh": "",
+            "thumbnail": thumbnail,
+            "image": image,
+            "local_thumbnail": "",
+            "local_image": "",
+            "year_published": year_published,
+            "min_players": min_players,
+            "max_players": max_players,
+            "min_playtime": min_playtime,
+            "max_playtime": max_playtime,
+            "min_age": min_age,
+            "bgg_rating": round(bgg_rating, 2),
+            "bgg_rank": bgg_rank,
+            "bgg_weight": round(bgg_weight, 2),
+            "users_rated": users_rated,
+            "categories": categories,
+            "mechanics": mechanics,
+            "expansions": expansions,
+            "series": series,
+            "designers": designers,
+            "publishers": publishers,
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    async def search_bga(self, name: str, limit: int = 5) -> list[dict]:
+        """Search BoardGameAtlas by name; returns list of {bgg_id, name}."""
+        bga_client_id = "JSKF2J3VYH"
+        url = f"https://api.boardgameatlas.com/api/search?name={name}&client_id={bga_client_id}&limit={limit}"
+        try:
+            resp = await self.client.get(url, headers={
+                "Accept": "application/json",
+            })
+            if resp.status_code != 200:
+                print(f"BGA search HTTP {resp.status_code} for q={name}")
+                return []
+            data = resp.json()
+            results = []
+            for g in data.get("games", []):
+                bgg_id_str = g.get("bgg_id")
+                if bgg_id_str:
+                    try:
+                        bgg_id = int(bgg_id_str)
+                        if bgg_id > 0:
+                            results.append({"bgg_id": bgg_id, "name": g.get("name", "")})
+                    except (ValueError, TypeError):
+                        continue
+            return results
+        except Exception as e:
+            print(f"BGA search error for q={name}: {e}")
+            return []
+
+    async def fetch_and_save_game(self, bgg_id: int) -> dict | None:
+        """Fetch a single game by ID, save to DB, return the game doc or None.
+
+        Tries the unauthenticated Geekdo API first; falls back to BGG XMLAPI2
+        (which requires auth).
+        """
+        game = await self.fetch_game_geekdo(bgg_id)
+        if game and game.get("description_en"):
+            await self.save_games([game])
+            return game
+
+        # Fallback: XMLAPI2 (requires auth)
+        print(f"Geekdo returned no data for bgg_id={bgg_id}, trying XMLAPI2 fallback")
+        games = await self.fetch_game_data([bgg_id])
+        if not games:
+            return None
+        await self.save_games(games)
+        return games[0]
+
     async def save_games(self, games: list[dict]):
         if not games:
             return

@@ -42,9 +42,9 @@ async def _search_games(query: str, limit: int = 8) -> list[dict]:
             })
 
     if not conditions:
-        cursor = mongo_db.board_games.find({"name_en": {"$not": {"$regex": r"^Board Game #"}}}).sort("bgg_rating", -1).limit(limit)
+        cursor = mongo_db.board_games.find({"description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
     else:
-        cursor = mongo_db.board_games.find({"$and": conditions, "name_en": {"$not": {"$regex": r"^Board Game #"}}}).sort("bgg_rating", -1).limit(limit)
+        cursor = mongo_db.board_games.find({"$and": conditions, "description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
 
     games = []
     async for doc in cursor:
@@ -58,8 +58,8 @@ async def _search_games(query: str, limit: int = 8) -> list[dict]:
             "max_players": doc.get("max_players", 0),
             "min_playtime": doc.get("min_playtime", 0),
             "max_playtime": doc.get("max_playtime", 0),
-            "categories": [c["name"] for c in doc.get("categories", [])],
-            "mechanics": [m["name"] for m in doc.get("mechanics", [])],
+            "categories": [c["name"] if isinstance(c, dict) else c for c in doc.get("categories", [])],
+            "mechanics": [m["name"] if isinstance(m, dict) else m for m in doc.get("mechanics", [])],
         })
     return games
 
@@ -78,7 +78,7 @@ async def _context_search(players: int | None, playtime: int | None, max_weight:
     if mechanic:
         fq["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
 
-    cursor = mongo_db.board_games.find({**fq, "name_en": {"$not": {"$regex": r"^Board Game #"}}}).sort("bgg_rating", -1).limit(limit)
+    cursor = mongo_db.board_games.find({**fq, "description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
     games = []
     async for doc in cursor:
         games.append({
@@ -91,8 +91,8 @@ async def _context_search(players: int | None, playtime: int | None, max_weight:
             "max_players": doc.get("max_players", 0),
             "min_playtime": doc.get("min_playtime", 0),
             "max_playtime": doc.get("max_playtime", 0),
-            "categories": [c["name"] for c in doc.get("categories", [])],
-            "mechanics": [m["name"] for m in doc.get("mechanics", [])],
+            "categories": [c["name"] if isinstance(c, dict) else c for c in doc.get("categories", [])],
+            "mechanics": [m["name"] if isinstance(m, dict) else m for m in doc.get("mechanics", [])],
         })
     return games
 
@@ -177,6 +177,7 @@ async def chat_recommend(msg: ChatMessage):
         })
         if doc:
             similar = await _hybrid.get_similar_with_data(doc["bgg_id"], top_k=5)
+            similar = [s for s in similar if s.get("description_en")]
             for s in similar:
                 games.append({
                     "bgg_id": s["bgg_id"],
@@ -188,8 +189,8 @@ async def chat_recommend(msg: ChatMessage):
                     "max_players": s.get("max_players", 0),
                     "min_playtime": s.get("min_playtime", 0),
                     "max_playtime": s.get("max_playtime", 0),
-                    "categories": [c["name"] for c in s.get("categories", [])],
-                    "mechanics": [m["name"] for m in s.get("mechanics", [])],
+                    "categories": [c["name"] if isinstance(c, dict) else c for c in s.get("categories", [])],
+                    "mechanics": [m["name"] if isinstance(m, dict) else m for m in s.get("mechanics", [])],
                 })
 
     if not games:
@@ -208,6 +209,7 @@ async def chat_recommend(msg: ChatMessage):
         if not fq:
             games = await _search_games(msg.message)
         else:
+            fq["description_en"] = {"$exists": True, "$ne": ""}
             cursor = mongo_db.board_games.find(fq).sort("bgg_rating", -1).limit(8)
             async for doc in cursor:
                 games.append({
@@ -220,8 +222,8 @@ async def chat_recommend(msg: ChatMessage):
                     "max_players": doc.get("max_players", 0),
                     "min_playtime": doc.get("min_playtime", 0),
                     "max_playtime": doc.get("max_playtime", 0),
-                    "categories": [c["name"] for c in doc.get("categories", [])],
-                    "mechanics": [m["name"] for m in doc.get("mechanics", [])],
+                    "categories": [c["name"] if isinstance(c, dict) else c for c in doc.get("categories", [])],
+                    "mechanics": [m["name"] if isinstance(m, dict) else m for m in doc.get("mechanics", [])],
                 })
 
     if not games:

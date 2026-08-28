@@ -74,7 +74,7 @@ async def enrich_zh_from_wikidata(min_ratio: float = MIN_RATIO, max_rank: int | 
     db = client[MONGO_DB]
 
     needs_zh_filter: dict = {
-        "name_en": {"$not": {"$regex": r"^Board Game #"}},
+        "description_en": {"$exists": True, "$ne": ""},
         "$or": [{"name_zh": ""}, {"name_zh": {"$exists": False}}],
     }
     if max_rank is not None:

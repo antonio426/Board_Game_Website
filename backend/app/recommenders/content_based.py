@@ -32,9 +32,9 @@ class ContentBasedRecommender:
             bgg_id = doc["bgg_id"]
             games_raw[bgg_id] = doc
             for c in doc.get("categories", []):
-                cat_set.add(c["name"])
+                cat_set.add(c["name"] if isinstance(c, dict) else c)
             for m in doc.get("mechanics", []):
-                mech_set.add(m["name"])
+                mech_set.add(m["name"] if isinstance(m, dict) else m)
 
         sorted_cats = sorted(cat_set)
         sorted_mechs = sorted(mech_set)
@@ -48,12 +48,14 @@ class ContentBasedRecommender:
             feature = [0.0] * (cat_dim + mech_dim + 4)
 
             for c in doc.get("categories", []):
-                idx = self._category_index.get(c["name"])
+                name = c["name"] if isinstance(c, dict) else c
+                idx = self._category_index.get(name)
                 if idx is not None:
                     feature[idx] = 1.0
 
             for m in doc.get("mechanics", []):
-                idx = self._mechanic_index.get(m["name"])
+                name = m["name"] if isinstance(m, dict) else m
+                idx = self._mechanic_index.get(name)
                 if idx is not None:
                     feature[cat_dim + idx] = 1.0
 

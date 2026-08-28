@@ -73,10 +73,13 @@ async def translate_terms_endpoint(batch_size: int = Query(100, ge=1, le=500)):
 
 async def translate_terms(batch_size: int = 100):
     games = []
+    terms = list(TERM_DICT.keys())
     cursor = mongo_db.board_games.find(
         {"$or": [
-            {"categories.name": {"$in": list(TERM_DICT.keys())}},
-            {"mechanics.name": {"$in": list(TERM_DICT.keys())}},
+            {"categories.name": {"$in": terms}},
+            {"categories": {"$in": terms}},
+            {"mechanics.name": {"$in": terms}},
+            {"mechanics": {"$in": terms}},
         ]},
         {"bgg_id": 1, "categories": 1, "mechanics": 1},
     ).limit(batch_size)
@@ -90,22 +93,26 @@ async def translate_terms(batch_size: int = 100):
         if doc.get("categories"):
             new_cats = []
             for c in doc["categories"]:
-                translated = TERM_DICT.get(c["name"])
+                cname = c["name"] if isinstance(c, dict) else c
+                cid = c.get("id", 0) if isinstance(c, dict) else 0
+                translated = TERM_DICT.get(cname)
                 new_cats.append({
-                    "id": c.get("id", 0),
-                    "name": c["name"],
-                    "name_zh": translated or c["name"],
+                    "id": cid,
+                    "name": cname,
+                    "name_zh": translated or cname,
                 })
             updates["categories"] = new_cats
 
         if doc.get("mechanics"):
             new_mechs = []
             for m in doc["mechanics"]:
-                translated = TERM_DICT.get(m["name"])
+                mname = m["name"] if isinstance(m, dict) else m
+                mid = m.get("id", 0) if isinstance(m, dict) else 0
+                translated = TERM_DICT.get(mname)
                 new_mechs.append({
-                    "id": m.get("id", 0),
-                    "name": m["name"],
-                    "name_zh": translated or m["name"],
+                    "id": mid,
+                    "name": mname,
+                    "name_zh": translated or mname,
                 })
             updates["mechanics"] = new_mechs
 

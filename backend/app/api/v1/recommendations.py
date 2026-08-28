@@ -44,6 +44,9 @@ async def similar_games(
         games = await _hybrid.cf.get_similar_games_with_data(bgg_id, top_k)
     else:
         games = await _hybrid.get_similar_with_data(bgg_id, top_k)
+
+    games = [g for g in games if g.get("description_en")]
+
     result = {"bgg_id": bgg_id, "method": method, "recommendations": games}
     _set_cache(cache_key, result, ttl=180)
     return result
@@ -69,10 +72,11 @@ async def recommend_for_me(
             user_id, top_k, min_players=min_players,
             max_players=max_players, max_playtime=max_playtime,
         )
+        games = [g for g in games if g.get("description_en")]
     else:
         from app.core.database import mongo_db
         cursor = mongo_db.board_games.find(
-            {"name_en": {"$not": {"$regex": r"^Board Game #"}}, "bgg_rating": {"$gt": 0}}
+            {"description_en": {"$exists": True, "$ne": ""}, "bgg_rating": {"$gt": 0}}
         ).sort("bgg_rating", -1).limit(top_k)
         games = []
         async for doc in cursor:
@@ -98,7 +102,7 @@ async def context_recommendations(
         return cached
 
     filter_query: dict = {}
-    filter_query["name_en"] = {"$not": {"$regex": r"^Board Game #"}}
+    filter_query["description_en"] = {"$exists": True, "$ne": ""}
     if players:
         filter_query["min_players"] = {"$lte": players}
         filter_query["max_players"] = {"$gte": players}
@@ -144,13 +148,13 @@ async def semantic_search(
 
     enriched = []
     games = await search_similar_with_data(q, top_k * 5)
-    enriched = [g for g in games if g.get("name_zh") or (g.get("name_en") and not g["name_en"].startswith("Board Game #"))][:top_k]
+    enriched = [g for g in games if g.get("name_zh") or g.get("description_en")][:top_k]
 
     if len(enriched) < top_k:
         remaining = top_k - len(enriched)
         existing_ids = [g["bgg_id"] for g in enriched]
         fq = {
-            "name_en": {"$not": {"$regex": r"^Board Game #"}},
+            "description_en": {"$exists": True, "$ne": ""},
             "bgg_id": {"$nin": existing_ids},
             "$or": [
                 {"name_en": {"$regex": q, "$options": "i"}},
@@ -170,7 +174,7 @@ async def semantic_search(
         remaining = top_k - len(enriched)
         existing_ids = [g["bgg_id"] for g in enriched]
         cursor = mongo_db.board_games.find({
-            "name_en": {"$not": {"$regex": r"^Board Game #"}},
+            "description_en": {"$exists": True, "$ne": ""},
             "bgg_id": {"$nin": existing_ids},
         }).sort("bgg_rating", -1).limit(remaining)
         async for doc in cursor:
