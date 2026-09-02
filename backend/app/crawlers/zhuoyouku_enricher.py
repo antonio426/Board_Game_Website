@@ -23,6 +23,8 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.core.cjk import to_traditional
+
 import httpx
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -191,7 +193,9 @@ def parse_detail_page(html: str, hash_id: str) -> Optional[dict]:
     if game_schema:
         name = game_schema.get("name", "")
         if name:
-            update["name_zh"] = name
+            trad_name = to_traditional(name)
+            update["name_zh"] = trad_name
+            update["aliases"] = [trad_name]
 
         alt_name = game_schema.get("alternateName", "")
         if alt_name:

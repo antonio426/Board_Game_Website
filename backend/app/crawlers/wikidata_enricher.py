@@ -5,6 +5,8 @@ from difflib import SequenceMatcher
 import httpx
 import pymongo
 
+from app.core.cjk import to_traditional
+
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.environ.get("MONGO_DB_NAME", "boardgame")
 MONGO_USER = os.environ.get("MONGO_USER", "boardgame")
@@ -106,7 +108,11 @@ async def enrich_zh_from_wikidata(min_ratio: float = MIN_RATIO, max_rank: int | 
         ).ratio()
 
         if ratio >= min_ratio:
-            db.board_games.update_one({"bgg_id": bgg_id}, {"$set": {"name_zh": wd["zh"]}})
+            trad_zh = to_traditional(wd["zh"])
+            db.board_games.update_one(
+                {"bgg_id": bgg_id},
+                {"$set": {"name_zh": trad_zh, "aliases": [trad_zh]}},
+            )
             updated += 1
 
     print(f"Updated {updated} games with verified Wikidata zh names")

@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Query
 from bson import ObjectId
 
+from app.core.cjk import expand_query_variants
 from app.core.database import mongo_db, redis_client
 from app.recommenders.embedding import search_similar, search_similar_with_data
 
@@ -121,19 +122,19 @@ async def list_games(
     if mechanic:
         filter_query["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
     if q:
+        q_variants = expand_query_variants(q)
+        or_clauses = []
+        for v in q_variants:
+            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
         if "$or" in filter_query:
             filter_query = {"$and": [
                 filter_query,
-                {"$or": [
-                    {"name_en": {"$regex": q, "$options": "i"}},
-                    {"name_zh": {"$regex": q, "$options": "i"}},
-                ]}
+                {"$or": or_clauses}
             ]}
         else:
-            filter_query["$or"] = [
-                {"name_en": {"$regex": q, "$options": "i"}},
-                {"name_zh": {"$regex": q, "$options": "i"}},
-            ]
+            filter_query["$or"] = or_clauses
 
     stub_filter = {"description_en": {"$exists": True, "$ne": ""}}
     if "$and" in filter_query:
@@ -266,10 +267,13 @@ async def search_games(
                 games = []
                 total = 0
         except Exception:
-            filter_query["$or"] = [
-                {"name_en": {"$regex": q, "$options": "i"}},
-                {"name_zh": {"$regex": q, "$options": "i"}},
-            ]
+            q_variants = expand_query_variants(q)
+            or_clauses = []
+            for v in q_variants:
+                or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
+                or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
+                or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
+            filter_query["$or"] = or_clauses
             total = await mongo_db.board_games.count_documents(filter_query)
             skip = (page - 1) * per_page
             cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).skip(skip).limit(per_page)
@@ -277,10 +281,13 @@ async def search_games(
             async for doc in cursor:
                 games.append(_format_game(doc, locale))
     elif q:
-        filter_query["$or"] = [
-            {"name_en": {"$regex": q, "$options": "i"}},
-            {"name_zh": {"$regex": q, "$options": "i"}},
-        ]
+        q_variants = expand_query_variants(q)
+        or_clauses = []
+        for v in q_variants:
+            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
+        filter_query["$or"] = or_clauses
         total = await mongo_db.board_games.count_documents(filter_query)
         skip = (page - 1) * per_page
         cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).skip(skip).limit(per_page)

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Query, Request
 
 from app.core.security import decode_access_token
 from app.core.database import redis_client
+from app.core.cjk import expand_query_variants
 from app.recommenders.hybrid import HybridRecommender
 from app.recommenders.content_based import ContentBasedRecommender
 from app.recommenders.embedding import index_games, search_similar_with_data
@@ -153,16 +154,19 @@ async def semantic_search(
     if len(enriched) < top_k:
         remaining = top_k - len(enriched)
         existing_ids = [g["bgg_id"] for g in enriched]
+        q_variants = expand_query_variants(q)
+        or_clauses = []
+        for v in q_variants:
+            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"categories.name": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"categories.name_zh": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"mechanics.name": {"$regex": v, "$options": "i"}})
         fq = {
             "description_en": {"$exists": True, "$ne": ""},
             "bgg_id": {"$nin": existing_ids},
-            "$or": [
-                {"name_en": {"$regex": q, "$options": "i"}},
-                {"name_zh": {"$regex": q, "$options": "i"}},
-                {"categories.name": {"$regex": q, "$options": "i"}},
-                {"categories.name_zh": {"$regex": q, "$options": "i"}},
-                {"mechanics.name": {"$regex": q, "$options": "i"}},
-            ],
+            "$or": or_clauses,
         }
         cursor = mongo_db.board_games.find(fq).sort("bgg_rating", -1).limit(remaining)
         async for doc in cursor:

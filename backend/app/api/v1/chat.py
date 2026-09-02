@@ -2,6 +2,7 @@ import json
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from app.core.cjk import expand_query_variants
 from app.core.database import mongo_db
 from app.recommenders.content_based import ContentBasedRecommender
 from app.recommenders.hybrid import HybridRecommender
@@ -28,18 +29,20 @@ async def _search_games(query: str, limit: int = 8) -> list[dict]:
     conditions = []
     tokens = query.lower().replace("，", " ").replace(",", " ").split()
     for token in tokens:
-        if token:
-            conditions.append({
-                "$or": [
-                    {"name_en": {"$regex": token, "$options": "i"}},
-                    {"name_zh": {"$regex": token, "$options": "i"}},
-                    {"categories.name": {"$regex": token, "$options": "i"}},
-                    {"categories.name_zh": {"$regex": token, "$options": "i"}},
-                    {"mechanics.name": {"$regex": token, "$options": "i"}},
-                    {"mechanics.name_zh": {"$regex": token, "$options": "i"}},
-                    {"designers": {"$regex": token, "$options": "i"}},
-                ]
-            })
+        if not token:
+            continue
+        variants = expand_query_variants(token)
+        token_or = []
+        for v in variants:
+            token_or.append({"name_en": {"$regex": v, "$options": "i"}})
+            token_or.append({"name_zh": {"$regex": v, "$options": "i"}})
+            token_or.append({"aliases": {"$regex": v, "$options": "i"}})
+            token_or.append({"categories.name": {"$regex": v, "$options": "i"}})
+            token_or.append({"categories.name_zh": {"$regex": v, "$options": "i"}})
+            token_or.append({"mechanics.name": {"$regex": v, "$options": "i"}})
+            token_or.append({"mechanics.name_zh": {"$regex": v, "$options": "i"}})
+            token_or.append({"designers": {"$regex": v, "$options": "i"}})
+        conditions.append({"$or": token_or})
 
     if not conditions:
         cursor = mongo_db.board_games.find({"description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
@@ -169,12 +172,13 @@ async def chat_recommend(msg: ChatMessage):
     games = []
     if intent.get("similar_to"):
         name_query = intent["similar_to"]
-        doc = await mongo_db.board_games.find_one({
-            "$or": [
-                {"name_en": {"$regex": name_query, "$options": "i"}},
-                {"name_zh": {"$regex": name_query, "$options": "i"}},
-            ]
-        })
+        nq_variants = expand_query_variants(name_query)
+        or_clauses = []
+        for v in nq_variants:
+            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
+            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
+        doc = await mongo_db.board_games.find_one({"$or": or_clauses})
         if doc:
             similar = await _hybrid.get_similar_with_data(doc["bgg_id"], top_k=5)
             similar = [s for s in similar if s.get("description_en")]

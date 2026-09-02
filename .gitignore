@@ -21,3 +21,6 @@ node_modules/
 
 # OS
 .DS_Store
+
+# OH-MY-OPENCODE tool session state
+.omo/

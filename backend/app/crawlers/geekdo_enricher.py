@@ -8,6 +8,7 @@ import httpx
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import settings
+from app.core.cjk import to_traditional
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,18 @@ def _pick_cjk_name(alternatenames: list[dict]) -> Optional[str]:
         if name and CJK_RE.search(name):
             return name
     return None
+
+
+def _pick_all_cjk_names(alternatenames: list[dict]) -> list[str]:
+    """Return all CJK alternate names, preserving order, deduped."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for entry in alternatenames or []:
+        name = entry.get("name", "")
+        if name and CJK_RE.search(name) and name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
 
 
 def _pick_link_names(links: dict, link_type: str) -> list[str]:
@@ -103,9 +116,10 @@ def _parse_game_payload(payload: dict, bgg_id: int) -> dict:
     publishers = _pick_link_names(links, "boardgamepublisher")
     update["publishers"] = publishers
 
-    cjk = _pick_cjk_name(item.get("alternatenames") or [])
-    if cjk:
-        update["name_zh"] = cjk
+    cjk_names = _pick_all_cjk_names(item.get("alternatenames") or [])
+    if cjk_names:
+        update["aliases"] = [to_traditional(n) for n in cjk_names]
+        update["name_zh"] = to_traditional(cjk_names[0])
 
     update["bgg_id"] = bgg_id
 
