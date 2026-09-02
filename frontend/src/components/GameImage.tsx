@@ -40,7 +40,7 @@ function gamePlaceholder(name: string) {
   </svg>`)}`;
 }
 
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://localhost:8001";
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL?.replace("/api/v1", "") || "http://localhost:8000";
 
 export function gameImageUrl(game: { local_thumbnail?: string; local_image?: string }, preferThumbnail = true): string | null {
   const localThumb = game.local_thumbnail;

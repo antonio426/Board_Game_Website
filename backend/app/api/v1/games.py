@@ -329,18 +329,5 @@ async def get_game(bgg_id: int, locale: str = Query("en")):
 
     _format_game(game, locale)
 
-    similar = []
-    if game.get("categories"):
-        cat_names = [c["name"] if isinstance(c, dict) else c for c in game["categories"]]
-        try:
-            similar_cursor = mongo_db.board_games.find(
-                {"bgg_id": {"$ne": bgg_id}, "description_en": {"$exists": True, "$ne": ""}, "categories": {"$in": cat_names}}
-            ).sort("bgg_rating", -1).limit(6)
-            async for doc in similar_cursor:
-                similar.append(_format_game(doc, locale))
-        except Exception as e:
-            logger.warning(f"similar_games query failed for bgg_id={bgg_id}: {e}")
-
-    game["similar_games"] = similar
     _set_cache(cache_key, game, ttl=300)
     return game
