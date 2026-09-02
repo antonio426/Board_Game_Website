@@ -62,10 +62,11 @@ async def ids_needing_refresh() -> list[int]:
     return out
 
 
-async def refresh_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, bgg_id: int) -> tuple[int, dict | None]:
+async def refresh_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, bgg_id: int, rate_limit: float) -> tuple[int, dict | None]:
     url = f"{GEEKDO_BASE}?objectid={bgg_id}&objecttype=thing&showstats=1"
     async with sem:
         try:
+            await asyncio.sleep(rate_limit)
             resp = await client.get(url)
             if resp.status_code != 200:
                 return bgg_id, None
@@ -77,7 +78,7 @@ async def refresh_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, bgg_id:
             return bgg_id, None
 
 
-async def main(limit: int | None, concurrency: int) -> None:
+async def main(limit: int | None, concurrency: int, rate_limit: float) -> None:
     print("[refetch] finding games needing Geekdo re-fetch...")
     ids = await ids_needing_refresh()
     total_available = len(ids)
@@ -103,7 +104,7 @@ async def main(limit: int | None, concurrency: int) -> None:
         batch_size = 50
         for i in range(0, len(ids), batch_size):
             batch = ids[i : i + batch_size]
-            tasks = [refresh_one(client, sem, bid) for bid in batch]
+            tasks = [refresh_one(client, sem, bid, rate_limit) for bid in batch]
             for bid, update in await asyncio.gather(*tasks):
                 if update:
                     await mongo_db.board_games.update_one(
@@ -142,7 +143,13 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--all", dest="all_games", action="store_true")
     parser.add_argument("--concurrency", type=int, default=5)
+    parser.add_argument(
+        "--rate-limit",
+        type=float,
+        default=1.5,
+        help="Seconds between each request (default 1.5; bump higher to avoid 429s)",
+    )
     args = parser.parse_args()
 
     limit = None if args.all_games else (args.limit if args.limit is not None else 200)
-    asyncio.run(main(limit, args.concurrency))
+    asyncio.run(main(limit, args.concurrency, args.rate_limit))
