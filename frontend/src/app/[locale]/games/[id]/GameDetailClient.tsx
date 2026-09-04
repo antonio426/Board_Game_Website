@@ -165,18 +165,24 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
           )}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {game.categories.map((c, i) => {
+            {game.categories.map((c) => {
               const label = locale === "zh" ? (c.name_zh || c.name) : c.name;
               const key = `cat-${c.id}-${c.name}`;
               return (
-                <span key={key} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{label}</span>
+                <Link key={key} href={{ pathname: "/games", query: { category: c.name } }}
+                  className="rounded-full px-3 py-1 text-xs font-medium transition-colors hover:brightness-125"
+                  style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}
+                >{label}</Link>
               );
             })}
-            {game.mechanics.map((m, i) => {
+            {game.mechanics.map((m) => {
               const label = locale === "zh" ? (m.name_zh || m.name) : m.name;
               const key = `mech-${m.id}-${m.name}`;
               return (
-                <span key={key} className="rounded-full px-3 py-1 text-xs font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{label}</span>
+                <Link key={key} href={{ pathname: "/games", query: { mechanic: m.name } }}
+                  className="rounded-full px-3 py-1 text-xs font-medium transition-colors hover:brightness-125"
+                  style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}
+                >{label}</Link>
               );
             })}
           </div>
