@@ -67,6 +67,17 @@ def _set_cache(key: str, data, ttl: int = 300):
         pass
 
 
+@router.get("/random")
+async def random_game(locale: str = Query("en")):
+    pipeline = [{"$sample": {"size": 1}}]
+    docs = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
+    if not docs:
+        return {"error": "no_games"}
+    if _should_hide_low_rated(docs[0], locale):
+        return await random_game(locale=locale)
+    return _format_game(docs[0], locale)
+
+
 @router.get("")
 async def list_games(
     page: int = Query(1, ge=1),

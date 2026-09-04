@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
@@ -58,13 +59,29 @@ export default function GamesPage() {
   });
   const [categories, setCategories] = useState<{ name: string; name_zh: string; count: number }[]>([]);
   const [mechanics, setMechanics] = useState<{ name: string; name_zh: string; count: number }[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+  const [showTop, setShowTop] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 400);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const goRandom = async () => {
+    try {
+      const res = await apiFetch<{ bgg_id: number }>("/games/random");
+      if (res?.bgg_id) router.push(`/games/${res.bgg_id}`);
+    } catch {}
+  };
 
   useEffect(() => {
     apiFetch<{ name: string; name_zh: string; count: number }[]>("/games/categories").then(setCategories).catch(() => {});
     apiFetch<{ name: string; name_zh: string; count: number }[]>("/games/mechanics").then(setMechanics).catch(() => {});
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   const fetchGames = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
@@ -87,6 +104,7 @@ export default function GamesPage() {
   }, [filter]);
 
   useEffect(() => { fetchGames(); }, [fetchGames]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateFilter = (key: keyof FilterState, value: string) => {
     setFilter((prev) => ({ ...prev, [key]: value, page: key !== "page" ? 1 : Number(value) || 1 }));
@@ -98,14 +116,24 @@ export default function GamesPage() {
     <main className="mx-auto max-w-7xl px-5 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="font-display text-3xl tracking-wide">{t("title")}</h1>
-        <button
-          onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: '#CBD5E1' }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18M3 12h12M3 19h6"/></svg>
-          {t("filter")}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={goRandom}
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:brightness-125"
+            style={{ background: 'rgba(217,119,6,0.12)', border: '1px solid rgba(217,119,6,0.3)', color: '#FBBF24' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="16" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="8" cy="16" r="1.5"/></svg>
+            {t("random")}
+          </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', color: '#CBD5E1' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 5h18M3 12h12M3 19h6"/></svg>
+            {t("filter")}
+          </button>
+        </div>
       </div>
 
       <div className="mb-5 flex flex-wrap gap-3">
@@ -244,6 +272,18 @@ export default function GamesPage() {
             </div>
           )}
         </>
+      )}
+
+      {showTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium shadow-lg transition-all hover:brightness-125"
+          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "#CBD5E1" }}
+          aria-label={t("backToTop")}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="18 15 12 9 6 15"/></svg>
+          {t("backToTop")}
+        </button>
       )}
     </main>
   );

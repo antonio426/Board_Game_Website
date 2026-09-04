@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
@@ -59,9 +60,9 @@ function GameCard({ game, locale }: { game: Game; locale: string }) {
   );
 }
 
-function QuickLink({ href, color, icon, label, desc }: { href: string; color: string; icon: React.ReactNode; label: string; desc?: string }) {
-  return (
-    <Link href={href} className="group relative overflow-hidden p-5 transition-all hover:-translate-y-0.5" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)' }}>
+function QuickLink({ href, onClick, color, icon, label, desc }: { href?: string; onClick?: () => void; color: string; icon: React.ReactNode; label: string; desc?: string }) {
+  const content = (
+    <>
       <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: `radial-gradient(circle at 50% 50%, ${color}12, transparent 70%)` }} />
       <div className="relative">
         <div className="mb-3 flex h-10 w-10 items-center justify-center" style={{ background: `${color}15`, borderRadius: 'var(--radius-md)' }}>
@@ -70,8 +71,14 @@ function QuickLink({ href, color, icon, label, desc }: { href: string; color: st
         <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{label}</h3>
         {desc && <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>{desc}</p>}
       </div>
-    </Link>
+    </>
   );
+  const cls = "group relative overflow-hidden p-5 text-left transition-all hover:-translate-y-0.5";
+  const style = { background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xl)' };
+  if (onClick) {
+    return <button type="button" onClick={onClick} className={cls} style={style}>{content}</button>;
+  }
+  return <Link href={href!} className={cls + " block"} style={style}>{content}</Link>;
 }
 
 function SectionHeader({ color, title }: { color: string; title: string }) {
@@ -86,9 +93,17 @@ function SectionHeader({ color, title }: { color: string; title: string }) {
 export default function HomeClient() {
   const t = useTranslations("home");
   const locale = useLocale();
+  const router = useRouter();
   const [topRated, setTopRated] = useState<Game[]>([]);
   const [forYou, setForYou] = useState<Game[]>([]);
   const [quickPicks, setQuickPicks] = useState<Game[]>([]);
+
+  const goRandom = async () => {
+    try {
+      const res = await apiFetch<{ bgg_id: number }>("/games/random");
+      if (res?.bgg_id) router.push(`/games/${res.bgg_id}`);
+    } catch {}
+  };
 
   useEffect(() => {
     (async () => {
@@ -148,6 +163,13 @@ export default function HomeClient() {
             color="#7C3AED"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>}
             label={t("quickLight")}
+          />
+          <QuickLink
+            onClick={goRandom}
+            color="#22C55E"
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="16" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="8" cy="16" r="1.5"/></svg>}
+            label={t("feelingLucky")}
+            desc="Discover a random board game"
           />
         </div>
       </section>

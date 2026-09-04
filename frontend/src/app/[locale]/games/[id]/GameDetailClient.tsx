@@ -62,6 +62,28 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
   const [owned, setOwned] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = window.location.href;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      } catch {
+        alert(t("shareFailed"));
+      }
+    }
+  };
 
   const toggleFav = async () => {
     if (!user) return;
@@ -164,7 +186,36 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <h3 className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+              {t("tags")}
+            </h3>
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+              style={{
+                background: shareCopied ? "rgba(21,128,61,0.12)" : "var(--color-surface)",
+                border: `1px solid ${shareCopied ? "rgba(21,128,61,0.4)" : "var(--color-border)"}`,
+                color: shareCopied ? "#4ADE80" : "#CBD5E1",
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {shareCopied ? (
+                  <polyline points="20 6 9 17 4 12" />
+                ) : (
+                  <>
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </>
+                )}
+              </svg>
+              {shareCopied ? t("shared") : t("share")}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
             {game.categories.map((c) => {
               const label = locale === "zh" ? (c.name_zh || c.name) : c.name;
               const key = `cat-${c.id}-${c.name}`;

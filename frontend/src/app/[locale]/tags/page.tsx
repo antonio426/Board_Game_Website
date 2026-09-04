@@ -46,6 +46,59 @@ export default function TagsPage() {
         {t("subtitle")}
       </p>
 
+      {!loading && categories.length > 0 && (() => {
+        const featured = [
+          ...categories.slice(0, 8).map((tag) => ({
+            tag,
+            href: { pathname: "/games", query: { category: tag.name } },
+          })),
+          ...mechanics.slice(0, 8).map((tag) => ({
+            tag,
+            href: { pathname: "/games", query: { mechanic: tag.name } },
+          })),
+        ];
+        return (
+          <section className="mb-10">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="h-6 w-1 rounded-full" style={{ background: "#D97706" }} />
+              <h2 className="font-display text-xl tracking-wide" style={{ color: "#F1F5F9" }}>
+                {t("featured")}
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {featured.map(({ tag, href }) => (
+                <Link
+                  key={`feat-${tag.name}`}
+                  href={href}
+                  className="group inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors"
+                  style={{
+                    background: "rgba(217,119,6,0.12)",
+                    border: "1px solid rgba(217,119,6,0.3)",
+                    color: "#FBBF24",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(217,119,6,0.2)";
+                    e.currentTarget.style.borderColor = "#FBBF24";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(217,119,6,0.12)";
+                    e.currentTarget.style.borderColor = "rgba(217,119,6,0.3)";
+                  }}
+                >
+                  <span>{label(tag)}</span>
+                  <span
+                    className="rounded-full px-1.5 py-0.5 text-xs"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "var(--color-text-muted)" }}
+                  >
+                    {tag.count}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
+
       {/* Categories */}
       <section className="mb-10">
         <h2 className="font-display text-xl tracking-wide mb-4" style={{ color: "#F1F5F9" }}>
