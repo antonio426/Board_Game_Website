@@ -88,15 +88,15 @@
 
 ## 3. 優先順序
 
-### Tier 1 — quick wins（1-2 小時 each）
+### Tier 1 — quick wins（1-2 小時 each）✅ **DONE**（commit `d4ec83a`）
 | # | 工作 | 效益 |
 |---|---|---|
-| T1.1 | **B1** Game detail 加 "Tags" section header | 視覺分組、可讀性 |
-| T1.2 | **A4 / F3** 首頁 + `/explore` 加隨機桌遊按鈕 | discovery 樂趣 |
-| T1.3 | **B2** Detail page 加 share 按鈕（copy URL） | 社交傳播 |
-| T1.4 | **E5** 長列表加「回到頂部」按鈕 | 列表 UX |
-| T1.5 | **A1** `/games` filter 預設展開 | 篩選可發現性 |
-| T1.6 | **A2** `/tags` 加 featured 區塊 + 按 count desc 排序 | tags 發現性 |
+| T1.1 ✅ | **B1** Game detail 加 "Tags" section header | 視覺分組、可讀性 |
+| T1.2 ✅ | **A4 / F3** 首頁 + `/explore` 加隨機桌遊按鈕 | discovery 樂趣 |
+| T1.3 ✅ | **B2** Detail page 加 share 按鈕（copy URL） | 社交傳播 |
+| T1.4 ✅ | **E5** 長列表加「回到頂部」按鈕 | 列表 UX |
+| T1.5 ✅ | **A1** `/games` filter 預設展開 | 篩選可發現性 |
+| T1.6 ✅ | **A2** `/tags` 加 featured 區塊 + 按 count desc 排序 | tags 發現性 |
 
 ### Tier 2 — medium effort（3-6 小時 each）
 | # | 工作 | 效益 |
@@ -127,7 +127,7 @@
 
 ---
 
-## 4. 建議下個 sprint（~6 小時，Tier 1 全做）
+## 4. 建議下個 sprint（~6 小時，Tier 1 全做）✅ DONE
 
 挑這 6 項：
 1. **T1.1** B1：Game detail 加 "Tags" section header（5 分鐘）
@@ -137,8 +137,78 @@
 5. **T1.5** A1：`/games` filter 預設展開（5 分鐘）
 6. **T1.6** A2：`/tags` 加 featured 區塊 + 按 count desc 排序（30 分鐘）
 
-預估總時間：~2 小時
-預期效益：搜尋可發現性 +1 個檔次、隨機探索提升使用者驚喜度、分享路徑打通
+預估總時間：~2 小時 ✅
+實際結果：commit `d4ec83a`，8 個檔案，+248/-16，ESLint + tsc + JSON 全部 clean。
+
+---
+
+## 4b. Sprint 2：下一個 2-3 天 batch ✅ READY TO EXECUTE
+
+從 Tier 2 挑這 5 項，預估總時間 **~18-23 小時 = 2.3-2.9 天**：
+
+| # | 工作 | 預估 | 效益 |
+|---|---|---|---|
+| T2.1 | **B3** Image lightbox（點圖放大看） | 3-4 小時 | 細節查看、明顯視覺升級 |
+| T2.2 | **C1** 多選 tag filter（前端 UI） | 5-6 小時 | 精準篩選、最大功能性改善 |
+| T2.4 | **B4** 未登入 favorite CTA 引導 | 3-4 小時 | 轉換率 |
+| T2.5 | **F2** 推薦理由說明 | 4-5 小時 | 信任感、推薦透明度 |
+| T2.6 | **B5 / B7** Detail 顯示 `users_rated` + similar games 理由 | 3-4 小時 | 透明 / 信任 |
+
+### 每項的工作細節（足夠直接動工）
+
+#### T2.1 — Image lightbox（3-4 小時）
+**範圍：** `frontend/src/components/GameImage.tsx`（已存在）+ 新 `frontend/src/components/ImageLightbox.tsx`
+- 點 `GameImage` → 開 modal（fixed 全螢幕、`bg-black/90`）
+- 顯示原圖（`local_image` 或 fallback BGG URL）
+- 鍵盤：`Esc` 關閉、`←` `→` 切換（如有多圖，目前 BGG 只有單圖，但留擴充性）
+- 點背景關閉；點圖片本身不觸發關閉（`stopPropagation`）
+- 用 React Portal（`createPortal`）避免 z-index/overflow 受父層影響
+- 不需 i18n（純視覺，沒文字 label）
+
+#### T2.2 — 多選 tag filter（5-6 小時）
+**範圍：** `frontend/src/app/[locale]/games/page.tsx` + `explore/page.tsx`；後端 `games.py::list_games` 已支援 `categories=A,B,C`（`$in`），不用改
+- 將 category / mechanic 的 `<select>` 換成 multi-select chip 群
+- 用 React `useState<Set<string>>`，每點 chip toggle 加入/移除
+- query 改用 `category=A,B,C`（逗號分隔），既有的 `categories.split(",")` 已處理
+- UI：點選中的 chip 換高亮色（綠/藍），hover 顯示「+」加號暗示可加入
+- 「清除」按鈕（已存在則強化，沒有則加）
+
+#### T2.4 — 未登入 favorite CTA（3-4 小時）
+**範圍：** `frontend/src/app/[locale]/games/[id]/GameDetailClient.tsx`
+- 當 `useAuth().user === null` 時，favorite / own / rating 三個按鈕區塊換成「登入以收藏 / 標記擁有 / 評分」CTA
+- 加 hover tooltip 或小 popover 說明登入好處（「同步收藏、跨裝置、AI 推薦更準」）
+- i18n：`auth.signInToSave` / `auth.signInBenefits`
+- 點 CTA 跳 `/login` 或開登入 modal（看現有架構）
+
+#### T2.5 — 推薦理由說明（4-5 小時）
+**範圍：** `frontend/src/app/[locale]/games/[id]/GameDetailClient.tsx` + 可能的小後端 endpoint
+- 在 detail 頁 `Similar Games` 區塊加 hover tooltip 或可展開的「為什麼推薦」面板
+- 簡單實作：計算目前遊戲的 categories/mechanics 跟 user 已收藏遊戲的 overlap，列出「你有 X 個相同類別 / Y 個相同機制」
+- 後端可在 `/recommendations/similar/{id}` response 加 `reasoning: {matched_categories: [...], matched_mechanics: [...]}`（簡單 aggregation）
+- i18n：`similarGames.reasoning` / `similarGames.youHave` 等
+
+#### T2.6 — `users_rated` + similar 理由（3-4 小時）
+**範圍：** `frontend/src/app/[locale]/games/[id]/GameDetailClient.tsx`
+- StatBox 加「Rated by 12,000+ BGG users」（或實際數字從 `users_rated` 欄位）
+- 在「Similar Games」標題旁加小字「Based on your collection + similar mechanics」
+- 不需後端改動；純 UI 增強
+
+### 整體執行策略
+1. 先做 **T2.1**（獨立、視覺明顯）
+2. 再做 **T2.6**（純 UI，跟 T2.5 一起改 detail 頁）
+3. 然後 **T2.5**（需要後端小改動、跟 T2.6 共用 context）
+4. 接著 **T2.2**（最大、影響 list 體驗）
+5. 最後 **T2.4**（轉換率，auth flow 變更）
+
+### 驗證清單
+- `tsc --noEmit` clean
+- `eslint` clean
+- i18n JSON 兩個都 `json.load` pass
+- 瀏覽器手動測每項的 happy path + 1 個 edge case
+
+### 不在 Sprint 2 的（之後）
+- T2.3 最近瀏覽（個人化，低優先度）
+- Tier 3 全部（每項 1-2 天，超出 2-3 天範圍）
 
 ---
 
