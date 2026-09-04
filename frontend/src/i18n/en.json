@@ -24,6 +24,7 @@
     "home": "Home",
     "games": "Games",
     "explore": "Explore",
+    "tags": "Tags",
     "survey": "Survey",
     "chat": "AI Chat",
     "profile": "My Collection"
@@ -155,5 +156,9 @@
     "viewDetails": "View Details",
     "noResults": "No games found. Try adjusting your search or filters.",
     "searching": "Searching..."
+  },
+  "tags": {
+    "title": "Browse by Tag",
+    "subtitle": "Pick a category or mechanic to find similar games."
   }
 }
