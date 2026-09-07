@@ -23,7 +23,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.core.cjk import to_traditional
+from app.core.cjk import is_chinese, to_traditional
 
 import httpx
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -194,8 +194,9 @@ def parse_detail_page(html: str, hash_id: str) -> Optional[dict]:
         name = game_schema.get("name", "")
         if name:
             trad_name = to_traditional(name)
-            update["name_zh"] = trad_name
-            update["aliases"] = [trad_name]
+            if is_chinese(trad_name):
+                update["name_zh"] = trad_name
+            update["new_aliases"] = [trad_name]
 
         alt_name = game_schema.get("alternateName", "")
         if alt_name:
@@ -266,10 +267,37 @@ async def _fetch_list_page(client: httpx.AsyncClient, path: str) -> list[str]:
         return []
 
 
+SITEMAP_URL = f"{BASE_URL}/sitemap.xml"
+
+
+async def _fetch_sitemap_hash_ids(client: httpx.AsyncClient) -> list[str]:
+    """Game hash IDs from the sitemap the site advertises in robots.txt.
+
+    The hand-listed category pages below only surface 147 games; the sitemap
+    lists 1,528.
+    """
+    try:
+        resp = await client.get(SITEMAP_URL, timeout=60.0)
+        if resp.status_code != 200:
+            logger.warning("zhuoyouku sitemap -> HTTP %s", resp.status_code)
+            return []
+    except Exception as exc:
+        logger.warning("zhuoyouku sitemap error: %s", exc)
+        return []
+
+    return re.findall(r"/boardgame/([a-z0-9]{20,})", resp.text)
+
+
 async def collect_hash_ids(client: httpx.AsyncClient) -> list[str]:
-    """Collect all unique game hash IDs from known list pages."""
+    """Collect all unique game hash IDs, sitemap first."""
     all_ids: list[str] = []
     seen: set[str] = set()
+
+    for hid in await _fetch_sitemap_hash_ids(client):
+        if hid not in seen:
+            seen.add(hid)
+            all_ids.append(hid)
+    logger.info("[zhuoyouku] sitemap gave %d hash IDs", len(all_ids))
 
     for path in LIST_PAGES:
         ids = await _fetch_list_page(client, path)
@@ -335,10 +363,13 @@ async def _process_one(
                 stats["no_zh_data"] += 1
                 return
 
-            await db.board_games.update_one(
-                {"bgg_id": bgg_id},
-                {"$set": update},
-            )
+            # Aliases accumulate across enrichers, so they are appended rather
+            # than replaced wholesale.
+            new_aliases = update.pop("new_aliases", [])
+            write: dict = {"$set": update}
+            if new_aliases:
+                write["$addToSet"] = {"aliases": {"$each": new_aliases}}
+            await db.board_games.update_one({"bgg_id": bgg_id}, write)
             stats["updated"] += 1
 
         except Exception as e:

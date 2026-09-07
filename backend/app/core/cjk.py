@@ -30,6 +30,28 @@ def has_cjk(text: str | None) -> bool:
     return bool(text and _CJK_RE.search(text))
 
 
+_KANA_RE = re.compile(r"[\u3040-\u309f\u30a0-\u30ff]")
+
+# Shinjitai forms that exist in Japanese but not in Chinese of either register.
+# Kana catches most Japanese titles; these catch the kanji-only ones, such as
+# Ticket to Ride's 乗車券 (Chinese would write 乘車券).
+_SHINJITAI = "乗変図実対発県円歩帰穂桜駅覚営絵両単価届囲売読楽気従"
+_SHINJITAI_RE = re.compile(f"[{_SHINJITAI}]")
+
+
+def is_chinese(text: str | None) -> bool:
+    """True for Chinese text, false for Japanese.
+
+    BGG lists every CJK alternate name together, so the enrichers used to store
+    カタン スタンダード版 as Catan's Chinese name. Kana is the giveaway for most
+    of them; kanji-only Japanese titles are caught by the shinjitai characters
+    that Chinese never uses.
+    """
+    if not text or not has_cjk(text):
+        return False
+    return not _KANA_RE.search(text) and not _SHINJITAI_RE.search(text)
+
+
 def to_traditional(text: str | None) -> str:
     """Convert Simplified Chinese to Traditional. Idempotent on Traditional.
 

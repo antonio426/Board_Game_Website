@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 import httpx
 import pymongo
 
-from app.core.cjk import to_traditional
+from app.core.cjk import is_chinese, to_traditional
 
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB = os.environ.get("MONGO_DB_NAME", "boardgame")
@@ -109,9 +109,13 @@ async def enrich_zh_from_wikidata(min_ratio: float = MIN_RATIO, max_rank: int | 
 
         if ratio >= min_ratio:
             trad_zh = to_traditional(wd["zh"])
+            if not is_chinese(trad_zh):
+                continue
+            # Append rather than assign: aliases already hold names collected by
+            # the other enrichers, and overwriting them breaks CJK search.
             db.board_games.update_one(
                 {"bgg_id": bgg_id},
-                {"$set": {"name_zh": trad_zh, "aliases": [trad_zh]}},
+                {"$set": {"name_zh": trad_zh}, "$addToSet": {"aliases": trad_zh}},
             )
             updated += 1
 
