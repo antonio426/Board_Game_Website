@@ -1,12 +1,19 @@
-"""Set `is_expansion` from rank data already fetched.
+"""Set `is_expansion` from the rank the catalogue already carries.
 
-`scripts/backfill_dynamicinfo.py` records `subcategory_ranks`, and BGG never
-ranks an expansion, so games that came back with no ranks at all are expansions.
-Measured against the games labelled by the authoritative item API: all 43
-expansions caught, 9 false positives out of 3,296.
+BGG ranks every base game once it has about 30 ratings and never ranks an
+expansion, so a well-rated game with no rank is an expansion. The importer
+already stores `bgg_rank = 99999` for unranked items, so this needs no network
+calls at all.
 
-Documents whose subtype came from `scripts/backfill_subtypes.py` are left alone
-— that flag is authoritative and this one is an inference.
+Checked against the 3,296 games labelled through the authoritative item API:
+all 43 expansions are unranked and all 3,253 base games are ranked, with no
+exceptions either way.
+
+An unranked game with fewer than `MIN_VOTES` ratings is genuinely ambiguous —
+it may be an expansion, or a base game nobody has rated — so it is left alone
+rather than hidden. Documents whose subtype came from
+`scripts/backfill_subtypes.py` are also left alone: that flag is authoritative
+and this one is only an inference.
 
 Usage:
     cd backend && .venv/bin/python scripts/mark_expansions.py --dry-run
@@ -22,18 +29,17 @@ sys.path.insert(0, str(BACKEND))
 
 from app.core.database import mongo_db, redis_client
 
-INFERRED = {"dynamicinfo_at": {"$exists": True}, "subtype_at": {"$exists": False}}
-# Legacy rows carry `subcategory_ranks` as an empty object rather than an array,
-# so "no ranks" has to cover missing, empty array and wrong type alike.
-NO_RANKS = {"$expr": {"$eq": [
-    {"$size": {"$cond": [{"$isArray": "$subcategory_ranks"}, "$subcategory_ranks", []]}},
-    0,
-]}}
+# BGG's "no rank" sentinel, as stored by the importer.
+UNRANKED = 99999
+# Below this many ratings, being unranked says nothing either way.
+MIN_VOTES = 30
+
+INFERRED = {"subtype_at": {"$exists": False}}
 
 
 async def main(dry_run: bool) -> None:
-    expansions = {**INFERRED, **NO_RANKS}
-    base_games = {**INFERRED, "subcategory_ranks.0": {"$exists": True}}
+    expansions = {**INFERRED, "bgg_rank": {"$gte": UNRANKED}, "users_rated": {"$gte": MIN_VOTES}}
+    base_games = {**INFERRED, "bgg_rank": {"$lt": UNRANKED}}
 
     expansion_count = await mongo_db.board_games.count_documents(expansions)
     base_count = await mongo_db.board_games.count_documents(base_games)

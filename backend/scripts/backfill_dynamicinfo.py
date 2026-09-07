@@ -111,11 +111,8 @@ def parse(payload: dict) -> dict:
     if ranks:
         fields["subcategory_ranks"] = ranks
 
-    # BGG ranks every base game that has ratings and never ranks expansions, so
-    # an item with no ranks at all is almost certainly an expansion. Checked
-    # against 3,296 games labelled through the authoritative item API: it caught
-    # all 43 expansions with 9 false positives, all obscure unranked base games.
-    # `scripts/backfill_subtypes.py` overwrites this with the real subtype.
+    # BGG never ranks an expansion; `scripts/mark_expansions.py` turns that
+    # absence into `is_expansion`.
     fields["is_expansion_guess"] = not ranks
 
     return fields
@@ -175,8 +172,6 @@ async def main(limit: int | None, min_users_rated: int, refresh: bool) -> None:
                 return
             if "bgg_weight" in fields:
                 weighted += 1
-            if not has_authoritative_subtype:
-                fields["is_expansion"] = fields["is_expansion_guess"]
             writes.append(UpdateOne({"bgg_id": bgg_id}, {"$set": fields}))
 
         for start in range(0, len(todo), FLUSH_EVERY):

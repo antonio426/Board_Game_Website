@@ -141,6 +141,9 @@ Phase 0 baseline (`tests/eval_baseline.json`): `recall@10 84.2%, top1 66.7%, pre
 - Sort defaults to `quality` (`quality_score`, Bayesian with m=1000), not `bgg_rank`.
 - Expansions are excluded unless `include_expansions=true`: they outscore the base games they
   extend, so an unfiltered top ten was mostly Spirit Island and Ark Nova expansions.
+  `is_expansion` comes from `bgg_rank == 99999` plus at least 30 ratings — BGG ranks every rated
+  base game and never ranks an expansion — which agreed with the authoritative subtype API on all
+  3,296 games where both were known. `scripts/mark_expansions.py` applies it offline.
 - The zh locale additionally hides games below `bgg_rating 6` with fewer than 50 ratings.
 - Recommendation fallback chain: collaborative (needs 5+ interactions) → content similarity →
   taste profile → `quality_score` leaderboard. Nothing returns an empty list.

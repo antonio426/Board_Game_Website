@@ -332,7 +332,7 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
 | P1.3 | 中文覆蓋率：`scripts/clean_zh_names.py` 把 641 筆日文名稱移進 `aliases` 並清空 `name_zh`（カタン、乗車券 等），zh 介面改回退到英文而不是顯示日文；15 筆從 alias 提升為真正的中文名。翻譯補齊仍待決定 | 部分完成 |
 | P2.1 | `quality_score` Bayesian（m=1000），預設排序改成 `quality` | ✅ |
 | P2.2 | `app/core/search.py`：完全相符 100 > 前綴 60 > 詞邊界 40 > 子字串 20，擴充 -25，加 `quality_score` 當 tie-break | ✅ |
-| P2.3 | `is_expansion`：優先用 geekitems 的真實 subtype；沒有的用「BGG 沒給任何排名」推論（實測 43/43 抓到，9 個誤判 / 3,296） | ✅（隨背景任務補齊） |
+| P2.3 | `is_expansion`：不需要任何 API。匯入時就存了 `bgg_rank = 99999` 代表未上榜，而 BGG 只要有約 30 個評分就會給基本款排名、擴充永遠不排名。用「未上榜 且 `users_rated >= 30`」判定，對 3,296 筆有權威 subtype 的資料驗證：43 個擴充全中、3,253 個基本款全對，零誤判。一次跑完標出 12,251 筆 | ✅ |
 | P3.1 | 多選 + AND/OR (`categories_mode`) + 排除 (`exclude_categories`) | ✅ |
 | P3.2 | `GET /games/facets`：單一 `$facet` 回傳每個選項在目前條件下的剩餘數量（276 ms） | ✅ |
 | P3.3 | `/games` 篩選狀態全部進 URL，可分享可重整 | ✅ |
@@ -364,6 +364,8 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
 ### 未完成 / 待決定
 
 1. **P1.3 中文覆蓋率沒做**：`name_zh` 仍只有 3,280 筆，且其中不少是日文（カタン、乗車券）；`description_zh` 只有 14 筆。要不要接付費翻譯 API 仍待你決定。
-2. **背景任務尚未跑完**：`backfill_dynamicinfo`（weight / 最佳人數 / 排名）與 `index_embeddings`（向量）。geekdo 在超過每秒約 10 次請求時會回 429，所以刻意壓低併發，dynamicinfo 預計數小時。兩者都可續跑，中斷再執行即可。
-3. **`backfill_subtypes.py` 只跑了 3,296 筆**：其餘用排名推論代替。想要 100% 準確的擴充標記，等 dynamicinfo 跑完後再單獨跑一次。
+2. **背景任務尚未跑完**：
+   - `scripts/backfill_dynamicinfo.py`：目前 `bgg_weight` 覆蓋 9,423 筆（原本 9 筆）。geekdo 超過每秒約 10 次請求會回 429，所以併發壓到 2，剩下約 34k 筆需要數小時。可續跑，中斷後重跑會自動跳過已完成的。
+   - `scripts/index_embeddings.py --recreate`：向量重建中，依 `users_rated` 由高到低，所以熱門遊戲先進索引；語意搜尋的品質隨覆蓋率提升。機器負載高時約每分鐘 700 筆。
+3. **`backfill_subtypes.py` 只跑了 3,296 筆**：其餘由 `mark_expansions.py` 用排名判定（對這 3,296 筆驗證是零誤判）。真的要 100% 權威標記再補跑，但目前沒有必要。
 4. **語意搜尋僅英文**：中文查詢走字詞比對。要中文語意檢索需換多語 retrieval 模型並重建 collection（維度會變）。
