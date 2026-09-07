@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from app.core.cjk import expand_query_variants
 from app.core.database import mongo_db
+from app.core.quality import QUALITY_FILTER, merge_filters
 from app.recommenders.content_based import ContentBasedRecommender
 from app.recommenders.hybrid import HybridRecommender
 
@@ -45,9 +46,11 @@ async def _search_games(query: str, limit: int = 8) -> list[dict]:
         conditions.append({"$or": token_or})
 
     if not conditions:
-        cursor = mongo_db.board_games.find({"description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
+        cursor = mongo_db.board_games.find(dict(QUALITY_FILTER)).sort("bgg_rating", -1).limit(limit)
     else:
-        cursor = mongo_db.board_games.find({"$and": conditions, "description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
+        cursor = mongo_db.board_games.find(
+            merge_filters({"$and": conditions}, QUALITY_FILTER)
+        ).sort("bgg_rating", -1).limit(limit)
 
     games = []
     async for doc in cursor:
@@ -81,7 +84,9 @@ async def _context_search(players: int | None, playtime: int | None, max_weight:
     if mechanic:
         fq["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
 
-    cursor = mongo_db.board_games.find({**fq, "description_en": {"$exists": True, "$ne": ""}}).sort("bgg_rating", -1).limit(limit)
+    cursor = mongo_db.board_games.find(
+        merge_filters(fq, QUALITY_FILTER)
+    ).sort("bgg_rating", -1).limit(limit)
     games = []
     async for doc in cursor:
         games.append({
@@ -213,7 +218,7 @@ async def chat_recommend(msg: ChatMessage):
         if not fq:
             games = await _search_games(msg.message)
         else:
-            fq["description_en"] = {"$exists": True, "$ne": ""}
+            fq.update(QUALITY_FILTER)
             cursor = mongo_db.board_games.find(fq).sort("bgg_rating", -1).limit(8)
             async for doc in cursor:
                 games.append({

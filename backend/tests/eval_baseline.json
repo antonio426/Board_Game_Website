@@ -1,0 +1,333 @@
+{
+  "summary": {
+    "cases": 33,
+    "recall": 0.8421052631578947,
+    "top1": 0.6666666666666666,
+    "precision": 0.8428571428571429,
+    "zero_results": 4
+  },
+  "results": [
+    {
+      "id": "name-en-catan",
+      "returned": 10,
+      "top_ids": [
+        926,
+        325,
+        13
+      ],
+      "recall": 1.0,
+      "top1": 0.0
+    },
+    {
+      "id": "name-en-dominion",
+      "returned": 10,
+      "top_ids": [
+        40834,
+        36218,
+        209418
+      ],
+      "recall": 1.0,
+      "top1": 0.0
+    },
+    {
+      "id": "name-en-agricola",
+      "returned": 9,
+      "top_ids": [
+        31260,
+        200680,
+        43018
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-en-wingspan",
+      "returned": 3,
+      "top_ids": [
+        266192,
+        366161,
+        473508
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-en-azul",
+      "returned": 8,
+      "top_ids": [
+        230802,
+        204052,
+        287954
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-en-root",
+      "returned": 9,
+      "top_ids": [
+        237182,
+        202245,
+        283838
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "name-en-gloomhaven",
+      "returned": 5,
+      "top_ids": [
+        174430,
+        291457,
+        393672
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-en-case-insensitive",
+      "returned": 3,
+      "top_ids": [
+        167791,
+        328871,
+        296108
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-en-partial",
+      "returned": 10,
+      "top_ids": [
+        390092,
+        24439,
+        14996
+      ],
+      "recall": 1.0,
+      "top1": 0.0
+    },
+    {
+      "id": "name-en-multiword",
+      "returned": 2,
+      "top_ids": [
+        162886,
+        367498
+      ],
+      "recall": 1.0,
+      "top1": 1.0
+    },
+    {
+      "id": "name-zh-carcassonne",
+      "returned": 9,
+      "top_ids": [
+        2993,
+        5405,
+        822
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "name-zh-wingspan",
+      "returned": 1,
+      "top_ids": [
+        266192
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "name-zh-azul",
+      "returned": 6,
+      "top_ids": [
+        230802,
+        204052,
+        287954
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "name-zh-terraforming",
+      "returned": 1,
+      "top_ids": [
+        167791
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "alias-zh-splendor",
+      "returned": 4,
+      "top_ids": [
+        364073,
+        148228,
+        293296
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "alias-simplified-input",
+      "returned": 9,
+      "top_ids": [
+        2993,
+        5405,
+        822
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "filter-two-player",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 0.9
+    },
+    {
+      "id": "filter-four-player",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 0.9
+    },
+    {
+      "id": "filter-short-games",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 0.0
+    },
+    {
+      "id": "filter-category-card-game",
+      "returned": 10,
+      "top_ids": [
+        342942,
+        338960,
+        182028
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-category-lowercase",
+      "returned": 10,
+      "top_ids": [
+        342942,
+        338960,
+        182028
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-mechanic-hand-management",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        342942,
+        161936
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-mechanic-worker-placement",
+      "returned": 10,
+      "top_ids": [
+        397598,
+        316554,
+        177736
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-min-rating",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-min-ratings-popular",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        342942,
+        161936
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-categories-multi",
+      "returned": 10,
+      "top_ids": [
+        342942,
+        174430,
+        115746
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "quality-list-default",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "quality-list-zh",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        129624,
+        342942
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "quality-search-default",
+      "returned": 10,
+      "top_ids": [
+        17701,
+        129624,
+        224517
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "semantic-deck-building",
+      "returned": 0,
+      "top_ids": [],
+      "precision": 0.0,
+      "zero_results": true
+    },
+    {
+      "id": "semantic-cooperative-disease",
+      "returned": 0,
+      "top_ids": [],
+      "recall": 0.0,
+      "zero_results": true
+    },
+    {
+      "id": "semantic-bird-engine",
+      "returned": 0,
+      "top_ids": [],
+      "recall": 0.0,
+      "zero_results": true
+    },
+    {
+      "id": "semantic-two-player-duel",
+      "returned": 0,
+      "top_ids": [],
+      "recall": 0.0,
+      "zero_results": true
+    }
+  ]
+}

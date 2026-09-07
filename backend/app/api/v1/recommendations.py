@@ -4,9 +4,11 @@ from fastapi import APIRouter, Query, Request
 from app.core.security import decode_access_token
 from app.core.database import redis_client
 from app.core.cjk import expand_query_variants
+from app.core.quality import QUALITY_FILTER, merge_filters
+from app.core.tags import tag_filter
 from app.recommenders.hybrid import HybridRecommender
 from app.recommenders.content_based import ContentBasedRecommender
-from app.recommenders.embedding import index_games, search_similar_with_data
+from app.recommenders.embedding import index_games, search_similar_with_data, semantic_enabled
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
@@ -77,7 +79,7 @@ async def recommend_for_me(
     else:
         from app.core.database import mongo_db
         cursor = mongo_db.board_games.find(
-            {"description_en": {"$exists": True, "$ne": ""}, "bgg_rating": {"$gt": 0}}
+            merge_filters(QUALITY_FILTER, {"bgg_rating": {"$gt": 0}})
         ).sort("bgg_rating", -1).limit(top_k)
         games = []
         async for doc in cursor:
@@ -102,8 +104,7 @@ async def context_recommendations(
     if cached:
         return cached
 
-    filter_query: dict = {}
-    filter_query["description_en"] = {"$exists": True, "$ne": ""}
+    filter_query: dict = dict(QUALITY_FILTER)
     if players:
         filter_query["min_players"] = {"$lte": players}
         filter_query["max_players"] = {"$gte": players}
@@ -112,9 +113,9 @@ async def context_recommendations(
     if max_weight:
         filter_query["bgg_weight"] = {"$lte": max_weight}
     if category:
-        filter_query["categories.name"] = {"$regex": category, "$options": "i"}
+        filter_query.update(await tag_filter("categories", category))
     if mechanic:
-        filter_query["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
+        filter_query.update(await tag_filter("mechanics", mechanic))
 
     from app.core.database import mongo_db
     cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).limit(top_k)
@@ -147,9 +148,10 @@ async def semantic_search(
 
     from app.core.database import mongo_db
 
-    enriched = []
-    games = await search_similar_with_data(q, top_k * 5)
-    enriched = [g for g in games if g.get("name_zh") or g.get("description_en")][:top_k]
+    enriched: list[dict] = []
+    if semantic_enabled():
+        games = await search_similar_with_data(q, top_k * 5)
+        enriched = [g for g in games if g.get("name_zh") or g.get("description_en")][:top_k]
 
     if len(enriched) < top_k:
         remaining = top_k - len(enriched)
@@ -163,11 +165,10 @@ async def semantic_search(
             or_clauses.append({"categories.name": {"$regex": v, "$options": "i"}})
             or_clauses.append({"categories.name_zh": {"$regex": v, "$options": "i"}})
             or_clauses.append({"mechanics.name": {"$regex": v, "$options": "i"}})
-        fq = {
-            "description_en": {"$exists": True, "$ne": ""},
-            "bgg_id": {"$nin": existing_ids},
-            "$or": or_clauses,
-        }
+        fq = merge_filters(
+            QUALITY_FILTER,
+            {"bgg_id": {"$nin": existing_ids}, "$or": or_clauses},
+        )
         cursor = mongo_db.board_games.find(fq).sort("bgg_rating", -1).limit(remaining)
         async for doc in cursor:
             doc["id"] = str(doc.pop("_id"))
@@ -177,10 +178,9 @@ async def semantic_search(
     if len(enriched) < top_k:
         remaining = top_k - len(enriched)
         existing_ids = [g["bgg_id"] for g in enriched]
-        cursor = mongo_db.board_games.find({
-            "description_en": {"$exists": True, "$ne": ""},
-            "bgg_id": {"$nin": existing_ids},
-        }).sort("bgg_rating", -1).limit(remaining)
+        cursor = mongo_db.board_games.find(
+            merge_filters(QUALITY_FILTER, {"bgg_id": {"$nin": existing_ids}})
+        ).sort("bgg_rating", -1).limit(remaining)
         async for doc in cursor:
             doc["id"] = str(doc.pop("_id"))
             doc["recommendation_score"] = 0.1

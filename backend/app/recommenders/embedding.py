@@ -2,10 +2,21 @@ import hashlib
 import math
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
+from app.core.config import settings
 from app.core.database import qdrant_client, mongo_db
 
 COLLECTION = "board_games"
 VECTOR_SIZE = 384
+
+
+def semantic_enabled() -> bool:
+    """Whether vector results are trustworthy enough to show.
+
+    `_text_to_vector` below is a SHA-256 placeholder, not an embedding model:
+    two texts about the same subject get unrelated vectors. Until it is
+    replaced, callers fall back to lexical search instead of serving noise.
+    """
+    return settings.SEMANTIC_SEARCH_ENABLED
 
 
 def _ensure_collection():

@@ -5,7 +5,9 @@ from bson import ObjectId
 
 from app.core.cjk import expand_query_variants
 from app.core.database import mongo_db, redis_client
-from app.recommenders.embedding import search_similar, search_similar_with_data
+from app.core.quality import merge_filters, quality_gate
+from app.core.tags import tag_filter
+from app.recommenders.embedding import search_similar, semantic_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +41,6 @@ def _format_game(doc: dict, locale: str = "en") -> dict:
     return doc
 
 
-def _should_hide_low_rated(doc: dict, locale: str) -> bool:
-    """In zh locale, hide games with very low rating and few ratings."""
-    if not locale or not locale.startswith("zh"):
-        return False
-    rating = doc.get("bgg_rating", 0) or 0
-    num_ratings = doc.get("num_ratings", 0) or 0
-    return rating < 3 and num_ratings < 50
-
-
 def _cache_key(prefix: str, **kwargs) -> str:
     parts = [prefix] + [f"{k}={v}" for k, v in sorted(kwargs.items()) if v is not None]
     return ":".join(parts)
@@ -69,12 +62,11 @@ def _set_cache(key: str, data, ttl: int = 300):
 
 @router.get("/random")
 async def random_game(locale: str = Query("en")):
-    pipeline = [{"$sample": {"size": 1}}]
+    """Random pick, sampled from the showable set so it never lands on a stub."""
+    pipeline = [{"$match": quality_gate(locale)}, {"$sample": {"size": 1}}]
     docs = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
     if not docs:
         return {"error": "no_games"}
-    if _should_hide_low_rated(docs[0], locale):
-        return await random_game(locale=locale)
     return _format_game(docs[0], locale)
 
 
@@ -104,12 +96,7 @@ async def list_games(
     if cached:
         return cached
 
-    filter_query = {}
-    if locale and locale.startswith("zh"):
-        filter_query["$or"] = [
-            {"bgg_rating": {"$gte": 3}},
-            {"num_ratings": {"$gte": 50}},
-        ]
+    filter_query: dict = {}
 
     if min_players is not None:
         filter_query["min_players"] = {"$lte": min_players}
@@ -129,9 +116,11 @@ async def list_games(
             w["$lte"] = max_weight
         filter_query["bgg_weight"] = w
     if category:
-        filter_query["categories.name"] = {"$regex": category, "$options": "i"}
+        filter_query.update(await tag_filter("categories", category))
     if mechanic:
-        filter_query["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
+        filter_query.update(await tag_filter("mechanics", mechanic))
+
+    name_query = None
     if q:
         q_variants = expand_query_variants(q)
         or_clauses = []
@@ -139,19 +128,9 @@ async def list_games(
             or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
             or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
             or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
-        if "$or" in filter_query:
-            filter_query = {"$and": [
-                filter_query,
-                {"$or": or_clauses}
-            ]}
-        else:
-            filter_query["$or"] = or_clauses
+        name_query = {"$or": or_clauses}
 
-    stub_filter = {"description_en": {"$exists": True, "$ne": ""}}
-    if "$and" in filter_query:
-        filter_query["$and"].append(stub_filter)
-    else:
-        filter_query = {"$and": [filter_query, stub_filter]}
+    filter_query = merge_filters(filter_query, quality_gate(locale), name_query)
 
     sort_key = SORT_MAP.get(sort, [("bgg_rank", 1)])
     skip = (page - 1) * per_page
@@ -178,6 +157,7 @@ async def list_games(
 async def list_categories():
     pipeline = [
         {"$unwind": "$categories"},
+        {"$match": {"categories.name": {"$nin": [None, ""]}}},
         {"$group": {"_id": "$categories.name", "name_zh": {"$first": "$categories.name_zh"}, "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 100},
@@ -192,6 +172,7 @@ async def list_categories():
 async def list_mechanics():
     pipeline = [
         {"$unwind": "$mechanics"},
+        {"$match": {"mechanics.name": {"$nin": [None, ""]}}},
         {"$group": {"_id": "$mechanics.name", "name_zh": {"$first": "$mechanics.name_zh"}, "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 100},
@@ -255,13 +236,14 @@ async def search_games(
     if max_playtime is not None:
         filter_query["max_playtime"] = {"$gte": max_playtime}
     if min_ratings is not None:
-        filter_query["num_ratings"] = {"$gte": min_ratings}
-    # Quality filter: only games with actual BGG data
-    filter_query["description_en"] = {"$exists": True, "$ne": ""}
+        filter_query["users_rated"] = {"$gte": min_ratings}
+    filter_query = merge_filters(filter_query, quality_gate(locale))
 
-    if semantic and q:
+    use_semantic = semantic and bool(q) and semantic_enabled()
+
+    if use_semantic:
         try:
-            results = search_similar(q, limit=200)
+            results = await search_similar(q, top_k=200)
             bgg_ids = [r.get("bgg_id") or r.get("id") for r in results if r]
             if bgg_ids:
                 filter_query["bgg_id"] = {"$in": bgg_ids}
@@ -321,7 +303,7 @@ async def search_games(
         "page": page,
         "per_page": per_page,
         "total_pages": (total + per_page - 1) // per_page,
-        "semantic": semantic and bool(q),
+        "semantic": use_semantic,
     }
     _set_cache(cache_key, result, ttl=120)
     return result

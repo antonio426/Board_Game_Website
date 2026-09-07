@@ -1,0 +1,43 @@
+{
+  "_comment": "Golden set for search / filter quality. Kept as JSON rather than YAML so the evaluator needs no extra dependency. Each case is graded on: does the expected game appear in the top-k (recall), is it first (top1), and do all returned games satisfy the stated conditions (precision).",
+  "top_k": 10,
+  "cases": [
+    {"id": "name-en-catan", "endpoint": "search", "params": {"q": "catan"}, "expect_ids": [13], "expect_top_id": 13},
+    {"id": "name-en-dominion", "endpoint": "search", "params": {"q": "dominion"}, "expect_ids": [36218], "expect_top_id": 36218},
+    {"id": "name-en-agricola", "endpoint": "search", "params": {"q": "agricola"}, "expect_ids": [31260], "expect_top_id": 31260},
+    {"id": "name-en-wingspan", "endpoint": "search", "params": {"q": "wingspan"}, "expect_ids": [266192], "expect_top_id": 266192},
+    {"id": "name-en-azul", "endpoint": "search", "params": {"q": "azul"}, "expect_ids": [230802], "expect_top_id": 230802},
+    {"id": "name-en-root", "endpoint": "search", "params": {"q": "root"}, "expect_ids": [237182]},
+    {"id": "name-en-gloomhaven", "endpoint": "search", "params": {"q": "gloomhaven"}, "expect_ids": [174430], "expect_top_id": 174430},
+    {"id": "name-en-case-insensitive", "endpoint": "search", "params": {"q": "TERRAFORMING mars"}, "expect_ids": [167791], "expect_top_id": 167791},
+    {"id": "name-en-partial", "endpoint": "search", "params": {"q": "ticket to ride"}, "expect_ids": [9209], "expect_top_id": 9209},
+    {"id": "name-en-multiword", "endpoint": "search", "params": {"q": "spirit island"}, "expect_ids": [162886], "expect_top_id": 162886},
+
+    {"id": "name-zh-carcassonne", "endpoint": "search", "params": {"q": "卡卡頌", "locale": "zh-TW"}, "expect_ids": [822]},
+    {"id": "name-zh-wingspan", "endpoint": "search", "params": {"q": "展翅翱翔", "locale": "zh-TW"}, "expect_ids": [266192]},
+    {"id": "name-zh-azul", "endpoint": "search", "params": {"q": "花磚物語", "locale": "zh-TW"}, "expect_ids": [230802]},
+    {"id": "name-zh-terraforming", "endpoint": "search", "params": {"q": "殖民火星", "locale": "zh-TW"}, "expect_ids": [167791]},
+    {"id": "alias-zh-splendor", "endpoint": "search", "params": {"q": "璀璨寶石", "locale": "zh-TW"}, "expect_ids": [148228]},
+    {"id": "alias-simplified-input", "endpoint": "search", "params": {"q": "卡卡颂", "locale": "zh-TW"}, "expect_ids": [822]},
+
+    {"id": "filter-two-player", "endpoint": "list", "params": {"min_players": 2, "per_page": 10}, "conditions": {"players_include": 2}},
+    {"id": "filter-four-player", "endpoint": "list", "params": {"min_players": 4, "per_page": 10}, "conditions": {"players_include": 4}},
+    {"id": "filter-short-games", "endpoint": "list", "params": {"max_playtime": 30, "per_page": 10}, "conditions": {"max_playtime_at_most": 30}},
+    {"id": "filter-category-card-game", "endpoint": "list", "params": {"category": "Card Game", "per_page": 10}, "conditions": {"category_any": ["Card Game"]}},
+    {"id": "filter-category-lowercase", "endpoint": "list", "params": {"category": "card game", "per_page": 10}, "conditions": {"category_any": ["Card Game"]}},
+    {"id": "filter-mechanic-hand-management", "endpoint": "list", "params": {"mechanic": "Hand Management", "per_page": 10}, "conditions": {"mechanic_any": ["Hand Management"]}},
+    {"id": "filter-mechanic-worker-placement", "endpoint": "list", "params": {"mechanic": "Worker Placement", "per_page": 10}, "conditions": {"mechanic_any": ["Worker Placement"]}},
+    {"id": "filter-min-rating", "endpoint": "list", "params": {"min_rating": 7.5, "per_page": 10}, "conditions": {"bgg_rating_at_least": 7.5}},
+    {"id": "filter-min-ratings-popular", "endpoint": "search", "params": {"min_ratings": 1000, "per_page": 10}, "conditions": {"users_rated_at_least": 1000}},
+    {"id": "filter-categories-multi", "endpoint": "search", "params": {"categories": "Card Game,Fantasy", "per_page": 10}, "conditions": {"category_any": ["Card Game", "Fantasy"]}},
+
+    {"id": "quality-list-default", "endpoint": "list", "params": {"per_page": 10}, "conditions": {"has_description": true}},
+    {"id": "quality-list-zh", "endpoint": "list", "params": {"locale": "zh-TW", "per_page": 10}, "conditions": {"has_description": true, "zh_gate": true}},
+    {"id": "quality-search-default", "endpoint": "search", "params": {"per_page": 10}, "conditions": {"has_description": true}},
+
+    {"id": "semantic-deck-building", "endpoint": "search", "params": {"q": "deck building card game", "semantic": true}, "conditions": {"has_description": true}},
+    {"id": "semantic-cooperative-disease", "endpoint": "search", "params": {"q": "cooperative game about curing diseases", "semantic": true}, "expect_ids": [30549]},
+    {"id": "semantic-bird-engine", "endpoint": "search", "params": {"q": "birds engine builder", "semantic": true}, "expect_ids": [266192]},
+    {"id": "semantic-two-player-duel", "endpoint": "search", "params": {"q": "two player civilization card duel", "semantic": true}, "expect_ids": [173346]}
+  ]
+}
