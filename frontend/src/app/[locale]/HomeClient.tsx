@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useTranslations, useLocale } from "next-intl";
-import { Link } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
 
@@ -100,23 +99,25 @@ export default function HomeClient() {
 
   const goRandom = async () => {
     try {
-      const res = await apiFetch<{ bgg_id: number }>("/games/random");
+      const res = await apiFetch<{ bgg_id: number }>(`/games/random?locale=${locale}`);
       if (res?.bgg_id) router.push(`/games/${res.bgg_id}`);
     } catch {}
   };
 
   useEffect(() => {
     (async () => {
+      // `sort_by` / `sort_order` were never parameters of this endpoint, so the
+      // "top rated" row was really the default ordering.
       const [rated, recs, quick] = await Promise.all([
-        fetchGames("/games?sort_by=bgg_rating&sort_order=desc&per_page=6"),
+        fetchGames(`/games?sort=quality&per_page=6&locale=${locale}`),
         fetchGames("/recommendations/for-me?top_k=6"),
-        fetchGames("/recommendations/context?players=4&playtime=60&top_k=6"),
+        fetchGames(`/recommendations/context?players=4&playtime=60&top_k=6&locale=${locale}`),
       ]);
       setTopRated(rated);
       setForYou(recs);
       setQuickPicks(quick);
     })();
-  }, []);
+  }, [locale]);
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-10 space-y-12">
