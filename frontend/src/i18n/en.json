@@ -27,7 +27,12 @@
     "featured": "Featured",
     "description": "Description",
     "min": "min",
-    "max": "max"
+    "max": "max",
+    "matchedTags": "Shares",
+    "ratedBy": "ratings",
+    "bestAt": "Best at",
+    "complexityLabel": "Complexity",
+    "language": "Language need"
   },
   "nav": {
     "home": "Home",
@@ -92,7 +97,8 @@
       "area_control": "Area Control",
       "hidden_roles": "Hidden Roles",
       "push_your_luck": "Push Your Luck"
-    }
+    },
+    "fallbackPopular": "Nothing matched every answer, so here are widely loved games instead."
   },
   "chat": {
     "title": "AI Game Advisor",
@@ -137,7 +143,32 @@
     "next": "Next",
     "page": "Page",
     "of": "of",
-    "viewDetails": "View Details"
+    "viewDetails": "View Details",
+    "sortQuality": "Best rated",
+    "results": "results",
+    "clearFilters": "Clear all",
+    "hideExpansions": "Hide expansions",
+    "showExpansions": "Include expansions",
+    "playersExact": "Playing with",
+    "playersAny": "Any",
+    "bestAtPlayers": "Best at this count",
+    "playtimeUnder": "Finishes within",
+    "anyLength": "Any length",
+    "complexity": "Complexity",
+    "complexityLight": "Light",
+    "complexityMedium": "Medium",
+    "complexityHeavy": "Heavy",
+    "complexityAny": "Any",
+    "includeTag": "Click to include, click again to exclude",
+    "excluded": "Excluded",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "activeFilters": "Active filters",
+    "random": "Random",
+    "backToTop": "Back to top",
+    "minutes": "min",
+    "matchedTags": "Shares",
+    "ratedBy": "{count} BGG ratings"
   },
   "explore": {
     "title": "Explore Games",

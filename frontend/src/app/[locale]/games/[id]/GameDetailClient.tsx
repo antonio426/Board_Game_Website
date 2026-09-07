@@ -34,14 +34,30 @@ interface Game {
   series: { bgg_id: number; name: string }[];
   designers: string[];
   publishers: string[];
+  best_players?: number[];
+  language_dependence?: string;
+  quality_score?: number;
   recommendation_score?: number;
+  reasoning?: { matched_categories: string[]; matched_mechanics: string[] };
 }
 
-function StatBox({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function StatBox({ label, value, accent, note }: { label: string; value: string; accent?: string; note?: string }) {
   return (
     <div className="rounded-xl p-4" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
       <div className="text-xs font-medium mb-1" style={{ color: 'var(--color-text-muted)' }}>{label}</div>
       <div className="text-2xl font-bold" style={{ color: accent || '#F1F5F9' }}>{value}</div>
+      {note && <div className="mt-1 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>{note}</div>}
+    </div>
+  );
+}
+
+/** The tags a recommendation has in common with the game being viewed. */
+function MatchedTags({ reasoning, label }: { reasoning?: Game["reasoning"]; label: string }) {
+  const matched = [...(reasoning?.matched_categories || []), ...(reasoning?.matched_mechanics || [])].slice(0, 3);
+  if (matched.length === 0) return null;
+  return (
+    <div className="mt-1 text-[11px]" style={{ color: '#86EFAC' }}>
+      {label}: {matched.join(", ")}
     </div>
   );
 }
@@ -165,10 +181,19 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
           )}
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <StatBox label={t("rating")} value={`★ ${game.bgg_rating}`} accent="#FBBF24" />
+            <StatBox
+              label={t("rating")}
+              value={`★ ${game.bgg_rating}`}
+              accent="#FBBF24"
+              note={game.users_rated ? `${game.users_rated.toLocaleString()} ${t("ratedBy")}` : undefined}
+            />
             <StatBox label={t("rank")} value={`#${game.bgg_rank < 99999 ? game.bgg_rank : "-"}`} accent="#4ADE80" />
-            <StatBox label={t("weight")} value={`${game.bgg_weight}/5`} />
-            <StatBox label={t("players")} value={`${game.min_players}–${game.max_players}`} />
+            <StatBox label={t("weight")} value={game.bgg_weight ? `${game.bgg_weight.toFixed(1)}/5` : "-"} />
+            <StatBox
+              label={t("players")}
+              value={`${game.min_players}–${game.max_players}`}
+              note={game.best_players?.length ? `${t("bestAt")} ${game.best_players.join(", ")}` : undefined}
+            />
             <StatBox label={t("playtime")} value={`${game.min_playtime}–${game.max_playtime}m`} />
             <StatBox label={t("year")} value={String(game.year_published || "-")} />
           </div>
@@ -279,6 +304,7 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
                   <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
                     ★ {g.bgg_rating} · {g.min_players}–{g.max_players} · {g.min_playtime}–{g.max_playtime}m
                   </div>
+                  <MatchedTags reasoning={g.reasoning} label={t("matchedTags")} />
                 </div>
               </Link>
             ))}

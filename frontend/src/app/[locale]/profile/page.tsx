@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const [items, setItems] = useState<CollectionItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     (async () => {
@@ -45,6 +46,7 @@ export default function ProfilePage() {
       } catch {} finally { setLoading(false); }
     })();
   }, [user]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (authLoading) return <main className="p-8"><p>{tc("loading")}</p></main>;
 

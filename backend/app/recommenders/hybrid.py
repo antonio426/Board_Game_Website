@@ -1,6 +1,21 @@
-from app.recommenders.content_based import ContentBasedRecommender
-from app.recommenders.collaborative import CollaborativeFilter
+"""Blends content similarity with collaborative signal, degrading as data allows.
+
+The collaborative filter is built from `user_actions`, of which there are 15
+across 0 registered users, so in practice it contributes nothing today. Rather
+than pretend otherwise, the blend weights itself by what actually came back and
+the fallback chain is explicit:
+
+    collaborative (needs interactions) -> content similarity -> taste profile
+    -> quality_score leaderboard
+"""
 from app.core.database import mongo_db
+from app.core.filters import BASE_GAMES_ONLY
+from app.core.quality import merge_filters, QUALITY_FILTER
+from app.recommenders.collaborative import CollaborativeFilter
+from app.recommenders.content_based import ContentBasedRecommender, attach_games
+
+CONTENT_WEIGHT = 0.6
+MIN_ACTIONS_FOR_COLLABORATIVE = 5
 
 
 class HybridRecommender:
@@ -8,48 +23,35 @@ class HybridRecommender:
         self.cb = ContentBasedRecommender()
         self.cf = CollaborativeFilter()
 
-    async def get_similar(self, bgg_id: int, top_k: int = 10, alpha: float = 0.6) -> list[dict]:
-        cb_results = await self.cb.get_similar(bgg_id, top_k=top_k * 3)
-        cf_results = await self.cf.get_similar_games(bgg_id, top_k=top_k * 3)
+    async def get_similar(self, bgg_id: int, top_k: int = 10, alpha: float = CONTENT_WEIGHT) -> list[dict]:
+        content = await self.cb.get_similar(bgg_id, top_k=top_k * 3)
+        collaborative = await self.cf.get_similar_games(bgg_id, top_k=top_k * 3)
 
-        cb_map = {r["bgg_id"]: r["score"] for r in cb_results}
-        cf_map = {r["bgg_id"]: r["score"] for r in cf_results}
+        content_map = {item["bgg_id"]: item for item in content}
+        collaborative_map = {item["bgg_id"]: item["score"] for item in collaborative}
 
-        all_ids = set(cb_map.keys()) | set(cf_map.keys())
+        highest_content = max((item["score"] for item in content), default=1.0) or 1.0
+        highest_collaborative = max(collaborative_map.values(), default=1.0) or 1.0
 
-        max_cb = max(cb_map.values()) if cb_map else 1.0
-        max_cf = max(cf_map.values()) if cf_map else 1.0
-
-        has_cf = bool(cf_map)
-        effective_alpha = alpha if has_cf else 1.0
+        # With no collaborative signal the blend is pure content similarity,
+        # rather than a 0.6 weighting of something and 0.4 of nothing.
+        weight = alpha if collaborative_map else 1.0
 
         combined = []
-        for gid in all_ids:
-            cb_score = (cb_map.get(gid, 0) / max_cb) if max_cb > 0 else 0
-            cf_score = (cf_map.get(gid, 0) / max_cf) if max_cf > 0 else 0
-            final = effective_alpha * cb_score + (1 - effective_alpha) * cf_score
-            combined.append({"bgg_id": gid, "score": round(final, 4)})
+        for game_id in set(content_map) | set(collaborative_map):
+            content_score = (content_map.get(game_id, {}).get("score", 0)) / highest_content
+            collaborative_score = collaborative_map.get(game_id, 0) / highest_collaborative
+            combined.append({
+                "bgg_id": game_id,
+                "score": round(weight * content_score + (1 - weight) * collaborative_score, 4),
+                "reasoning": content_map.get(game_id, {}).get("reasoning"),
+            })
 
-        combined.sort(key=lambda x: x["score"], reverse=True)
+        combined.sort(key=lambda item: item["score"], reverse=True)
         return combined[:top_k]
 
-    async def get_similar_with_data(self, bgg_id: int, top_k: int = 10, alpha: float = 0.6) -> list[dict]:
-        similar = await self.get_similar(bgg_id, top_k, alpha)
-        if not similar:
-            return []
-
-        ids = [s["bgg_id"] for s in similar]
-        score_map = {s["bgg_id"]: s["score"] for s in similar}
-
-        games = []
-        cursor = mongo_db.board_games.find({"bgg_id": {"$in": ids}})
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = score_map.get(doc["bgg_id"], 0)
-            games.append(doc)
-
-        games.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
-        return games
+    async def get_similar_with_data(self, bgg_id: int, top_k: int = 10, alpha: float = CONTENT_WEIGHT) -> list[dict]:
+        return await attach_games(await self.get_similar(bgg_id, top_k, alpha))
 
     async def recommend_for_user(
         self,
@@ -59,76 +61,89 @@ class HybridRecommender:
         max_players: int | None = None,
         max_playtime: int | None = None,
     ) -> list[dict]:
-        cf_results = await self.cf.recommend_for_user(user_id, top_k=top_k * 2)
+        """Best available personalisation for this user, in order of evidence."""
+        interactions = await mongo_db.user_actions.count_documents({"user_id": user_id})
 
-        if not cf_results:
-            user_prefs = await self._get_user_preferences(user_id)
-            return await self.cb.recommend_for_preferences(
-                liked_categories=user_prefs.get("categories"),
-                liked_mechanics=user_prefs.get("mechanics"),
-                preferred_weight=user_prefs.get("weight"),
-                preferred_players=min_players or user_prefs.get("players"),
-                top_k=top_k,
+        if interactions >= MIN_ACTIONS_FOR_COLLABORATIVE:
+            collaborative = await self.cf.recommend_for_user(user_id, top_k=top_k * 2)
+            if collaborative:
+                games = await attach_games(collaborative)
+                games = _apply_constraints(games, min_players, max_players, max_playtime)
+                if games:
+                    return games[:top_k]
+
+        preferences = await self.taste_profile(user_id)
+        if preferences.get("categories") or preferences.get("mechanics"):
+            scored = await self.cb.recommend_for_preferences(
+                liked_categories=preferences.get("categories"),
+                liked_mechanics=preferences.get("mechanics"),
+                preferred_weight=preferences.get("weight"),
+                exclude_ids=preferences.get("seen_ids"),
+                top_k=top_k * 2,
             )
+            games = _apply_constraints(await attach_games(scored), min_players, max_players, max_playtime)
+            if games:
+                return games[:top_k]
 
-        filter_query: dict = {}
-        if min_players is not None:
-            filter_query["min_players"] = {"$lte": min_players}
-        if max_players is not None:
-            filter_query["max_players"] = {"$gte": max_players}
-        if max_playtime is not None:
-            filter_query["min_playtime"] = {"$lte": max_playtime}
+        return await popular_games(top_k)
 
-        ids = [r["bgg_id"] for r in cf_results]
-        score_map = {r["bgg_id"]: r["score"] for r in cf_results}
-
-        if filter_query:
-            filter_query["bgg_id"] = {"$in": ids}
-            cursor = mongo_db.board_games.find(filter_query)
-        else:
-            cursor = mongo_db.board_games.find({"bgg_id": {"$in": ids}})
-
-        games = []
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = score_map.get(doc["bgg_id"], 0)
-            games.append(doc)
-
-        games.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
-        return games[:top_k]
-
-    async def _get_user_preferences(self, user_id: str) -> dict:
+    async def taste_profile(self, user_id: str) -> dict:
+        """Categories, mechanics and complexity the user keeps coming back to."""
         pipeline = [
             {"$match": {"user_id": user_id, "action_type": {"$in": ["rate", "wishlist", "favorite", "own"]}}},
-            {"$lookup": {"from": "board_games", "localField": "bgg_id", "foreignField": "bgg_id", "as": "game"}},
+            {"$lookup": {"from": "board_games", "localField": "bgg_id",
+                         "foreignField": "bgg_id", "as": "game"}},
             {"$unwind": "$game"},
-            {"$group": {
-                "_id": None,
-                "categories": {"$push": "$game.categories"},
-                "mechanics": {"$push": "$game.mechanics"},
-                "weights": {"$push": "$game.bgg_weight"},
-            }},
         ]
 
-        result = await mongo_db.user_actions.aggregate(pipeline).to_list(length=1)
-        if not result:
-            return {}
+        category_counts: dict[str, int] = {}
+        mechanic_counts: dict[str, int] = {}
+        weights: list[float] = []
+        seen_ids: set[int] = set()
 
-        data = result[0]
-        cat_counts: dict[str, int] = {}
-        for cats in data.get("categories", []):
-            for c in cats:
-                cname = c["name"] if isinstance(c, dict) else c
-                cat_counts[cname] = cat_counts.get(cname, 0) + 1
+        async for row in mongo_db.user_actions.aggregate(pipeline):
+            game = row["game"]
+            seen_ids.add(game.get("bgg_id"))
+            for item in game.get("categories") or []:
+                name = item.get("name") if isinstance(item, dict) else item
+                if name:
+                    category_counts[name] = category_counts.get(name, 0) + 1
+            for item in game.get("mechanics") or []:
+                name = item.get("name") if isinstance(item, dict) else item
+                if name:
+                    mechanic_counts[name] = mechanic_counts.get(name, 0) + 1
+            if game.get("bgg_weight"):
+                weights.append(game["bgg_weight"])
 
-        mech_counts: dict[str, int] = {}
-        for mechs in data.get("mechanics", []):
-            for m in mechs:
-                mname = m["name"] if isinstance(m, dict) else m
-                mech_counts[mname] = mech_counts.get(mname, 0) + 1
+        return {
+            "categories": sorted(category_counts, key=category_counts.get, reverse=True)[:5],
+            "mechanics": sorted(mechanic_counts, key=mechanic_counts.get, reverse=True)[:5],
+            "weight": sum(weights) / len(weights) if weights else None,
+            "seen_ids": seen_ids,
+        }
 
-        top_cats = sorted(cat_counts, key=cat_counts.get, reverse=True)[:5]
-        top_mechs = sorted(mech_counts, key=mech_counts.get, reverse=True)[:5]
-        avg_weight = sum(w for w in data.get("weights", []) if w) / max(len([w for w in data.get("weights", []) if w]), 1)
 
-        return {"categories": top_cats, "mechanics": top_mechs, "weight": avg_weight, "players": None}
+def _apply_constraints(games: list[dict], min_players, max_players, max_playtime) -> list[dict]:
+    def fits(game: dict) -> bool:
+        if min_players is not None and (game.get("min_players") or 0) > min_players:
+            return False
+        if max_players is not None and (game.get("max_players") or 0) < max_players:
+            return False
+        if max_playtime is not None and (game.get("min_playtime") or 0) > max_playtime:
+            return False
+        return True
+
+    return [game for game in games if fits(game)]
+
+
+async def popular_games(top_k: int = 10) -> list[dict]:
+    """Last resort: the games most people agree are good."""
+    query = merge_filters(QUALITY_FILTER, BASE_GAMES_ONLY, {"users_rated": {"$gte": 1000}})
+    cursor = mongo_db.board_games.find(query).sort("quality_score", -1).limit(top_k)
+
+    games = []
+    async for doc in cursor:
+        doc["id"] = str(doc.pop("_id"))
+        doc["recommendation_score"] = doc.get("quality_score", 0)
+        games.append(doc)
+    return games

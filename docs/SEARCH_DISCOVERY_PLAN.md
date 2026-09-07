@@ -81,7 +81,7 @@ def quality_gate(locale: str = "en", min_users_rated: int = 0) -> dict: ...
 
 ---
 
-## 2. Phase 1 — 資料補齊（約 2 天）
+## 2. Phase 1 — 資料補齊（約 2 天） — 進行中（見第 10 節）
 
 篩選品質的天花板是資料覆蓋率，不是 UI。
 
@@ -126,7 +126,7 @@ def quality_gate(locale: str = "en", min_users_rated: int = 0) -> dict: ...
 
 ---
 
-## 3. Phase 2 — 排序品質（約 2 天）
+## 3. Phase 2 — 排序品質（約 2 天） ✅ DONE
 
 ### P2.1 統一 `quality_score`（4 小時）
 現在排序依 `bgg_rating` 或 `bgg_rank`，兩者都有洞：`bgg_rating` 只有 43k 筆、
@@ -166,7 +166,7 @@ quality_score = (v / (v + m)) * R + (m / (v + m)) * C
 
 ---
 
-## 4. Phase 3 — 篩選體驗（約 2–3 天）
+## 4. Phase 3 — 篩選體驗（約 2–3 天） ✅ DONE
 
 前提：Phase 0/1 完成，否則做出來的控制項篩不到東西。
 
@@ -198,7 +198,7 @@ quality_score = (v / (v + m)) * R + (m / (v + m)) * C
 
 ---
 
-## 5. Phase 4 — 推薦品質（約 3 天）
+## 5. Phase 4 — 推薦品質（約 3 天） ✅ DONE
 
 ### P4.1 推薦理由（4–5 小時）
 - `/recommendations/similar/{id}` 回傳加上
@@ -227,7 +227,7 @@ quality_score = (v / (v + m)) * R + (m / (v + m)) * C
 
 ---
 
-## 6. Phase 5 — 量測（0.5 天，但要先做）
+## 6. Phase 5 — 量測（0.5 天，但要先做） ✅ DONE
 
 沒有這段就無法判斷上面任何一項有沒有改善。
 
@@ -321,3 +321,49 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
   Ticket to Ride = 乗車券）。P1.3 補中文時要一併判斷語言，不能只看「有沒有值」。
 - `bgg_rank` 前段就有並列（rank 2 同時是 Ark Nova 與 Kingdom Death: Monster，
   後者 `users_rated = 0`），再次佐證 P2.1 需要用 `quality_score` 取代 rank 當預設排序。
+
+
+### Phase 1-4（本次執行）
+
+| 項目 | 動作 | 狀態 |
+|---|---|---|
+| P1.1 | BGG XML API 已改為需認證（401）。改用 `api.geekdo.com/api/dynamicinfo`，一次拿到 weight、最佳人數投票、語言需求、subdomain 排名 | 背景跑，resumable |
+| P1.2 | `_text_to_vector` 的 SHA-256 假向量換成 fastembed。先試多語 paraphrase 模型，檢索品質差；改用 `BAAI/bge-small-en-v1.5`（384 維，不用改 collection） | 重建索引中 |
+| P1.3 | 中文覆蓋率 | **未做**（見下方「未完成」） |
+| P2.1 | `quality_score` Bayesian（m=1000），預設排序改成 `quality` | ✅ |
+| P2.2 | `app/core/search.py`：完全相符 100 > 前綴 60 > 詞邊界 40 > 子字串 20，擴充 -25，加 `quality_score` 當 tie-break | ✅ |
+| P2.3 | `is_expansion`：優先用 geekitems 的真實 subtype；沒有的用「BGG 沒給任何排名」推論（實測 43/43 抓到，9 個誤判 / 3,296） | ✅（隨背景任務補齊） |
+| P3.1 | 多選 + AND/OR (`categories_mode`) + 排除 (`exclude_categories`) | ✅ |
+| P3.2 | `GET /games/facets`：單一 `$facet` 回傳每個選項在目前條件下的剩餘數量（276 ms） | ✅ |
+| P3.3 | `/games` 篩選狀態全部進 URL，可分享可重整 | ✅ |
+| P3.4 | 新增語意明確的 `players` / `playtime_max` / `playtime_min`；舊參數保留但文件標明是 range-overlap | ✅ |
+| P4.1 | `/recommendations/similar` 每筆帶 `reasoning.matched_categories` / `matched_mechanics`，前端顯示「共同點」 | ✅ |
+| P4.2 | 降級鏈：協同（需 5+ 互動）→ content → 問卷 taste profile → `quality_score` 熱門榜。新增 `POST /recommendations/preferences`，問卷改用真實標籤名 | ✅ |
+| P4.3 | `diversity.py` MMR（λ 0.7）+ 同系列/同設計師各上限 2 | ✅ |
+| P4.4 | Chat 用 Redis 存 session intent（30 分鐘），「再短一點的呢」會沿用上一輪的人數 | ✅ |
+
+### 順手修掉的 bug
+
+- `/games/search?semantic=true` 呼叫 `search_similar()` 沒 await 且用錯 kwarg → 永遠拋例外走 regex fallback。
+- `/explore` 的語意搜尋打 `/games/semantic`，**這個 endpoint 從來不存在** → 語意模式一直是空結果。
+- `ContentBasedRecommender` 對全部 180k 筆（含 137k stub）建 285 維 dense 向量後逐一比對；改成只載入可推薦的語料 + 稀疏標籤集合。
+- 「重/複雜」在 chat 裡設成 `max_weight = 5.0`，等於沒有篩選；改成設下限 3.5。
+- `$facet` 的 key 不能含 `.`，weight bucket key（`weight_1.0_2.0`）會讓 endpoint 回 500。
+
+### Golden query 結果
+
+| | Phase 0 baseline | Phase 1-4 |
+|---|---|---|
+| recall@10 | 84.2% | 89.5% |
+| top1 | 66.7% | **100%** |
+| precision@10 | 84.3% | **94.3%** |
+| zero-result cases | 4 | 0 |
+
+（語意類案例需等向量索引重建完成後才會回到綠燈；量測時索引正在重跑。）
+
+### 未完成 / 待決定
+
+1. **P1.3 中文覆蓋率沒做**：`name_zh` 仍只有 3,280 筆，且其中不少是日文（カタン、乗車券）；`description_zh` 只有 14 筆。要不要接付費翻譯 API 仍待你決定。
+2. **背景任務尚未跑完**：`backfill_dynamicinfo`（weight / 最佳人數 / 排名）與 `index_embeddings`（向量）。geekdo 在超過每秒約 10 次請求時會回 429，所以刻意壓低併發，dynamicinfo 預計數小時。兩者都可續跑，中斷再執行即可。
+3. **`backfill_subtypes.py` 只跑了 3,296 筆**：其餘用排名推論代替。想要 100% 準確的擴充標記，等 dynamicinfo 跑完後再單獨跑一次。
+4. **語意搜尋僅英文**：中文查詢走字詞比對。要中文語意檢索需換多語 retrieval 模型並重建 collection（維度會變）。

@@ -49,8 +49,10 @@ def satisfies(game: dict, conditions: dict) -> bool:
             return False
 
     playtime = conditions.get("max_playtime_at_most")
-    if playtime is not None and (game.get("min_playtime") or 0) > playtime:
-        return False
+    if playtime is not None:
+        longest = game.get("max_playtime") or game.get("min_playtime") or 0
+        if longest <= 0 or longest > playtime:
+            return False
 
     rating = conditions.get("bgg_rating_at_least")
     if rating is not None and (game.get("bgg_rating") or 0) < rating:

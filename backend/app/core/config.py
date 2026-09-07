@@ -16,10 +16,9 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 10080
     FRONTEND_URL: str = "http://localhost:3000"
     BACKEND_URL: str = "http://localhost:8000"
-    # The Qdrant vectors are produced by a SHA-256 hash of the text, not by an
-    # embedding model, so vector results are noise. Keep this off until
-    # app/recommenders/embedding.py uses a real model (see docs plan P1.2).
-    SEMANTIC_SEARCH_ENABLED: bool = False
+    # Vectors come from paraphrase-multilingual-MiniLM-L12-v2 via fastembed.
+    # Set to false to fall back to lexical search (no model download at boot).
+    SEMANTIC_SEARCH_ENABLED: bool = True
     BGG_USERNAME: str = ""
     BGG_PASSWORD: str = ""
     BGG_SESSION_COOKIES: str = ""

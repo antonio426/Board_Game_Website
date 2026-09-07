@@ -1,9 +1,12 @@
 import json
+import uuid
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.core.cjk import expand_query_variants
-from app.core.database import mongo_db
+from app.core.database import mongo_db, redis_client
+from app.core.filters import BASE_GAMES_ONLY, build_filters, single_tag_filters
 from app.core.quality import QUALITY_FILTER, merge_filters
 from app.recommenders.content_based import ContentBasedRecommender
 from app.recommenders.hybrid import HybridRecommender
@@ -13,10 +16,49 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 _cb = ContentBasedRecommender()
 _hybrid = HybridRecommender()
 
+# Conversation state lives in Redis for half an hour, long enough for one
+# sitting. Without it every turn started from scratch, so "and something
+# shorter?" threw away the player count established two messages earlier.
+SESSION_TTL_SECONDS = 1800
+INTENT_KEYS = ("players", "playtime", "max_weight", "min_weight", "category", "mechanic")
+
 
 class ChatMessage(BaseModel):
     message: str
     locale: str = "zh"
+    session_id: str | None = None
+    reset: bool = False
+
+
+def _session_key(session_id: str) -> str:
+    return f"chat:session:{session_id}"
+
+
+def _load_intent(session_id: str | None) -> dict:
+    if not session_id:
+        return {}
+    try:
+        raw = redis_client.get(_session_key(session_id))
+    except Exception:
+        return {}
+    return json.loads(raw) if raw else {}
+
+
+def _save_intent(session_id: str, intent: dict) -> None:
+    try:
+        redis_client.setex(_session_key(session_id), SESSION_TTL_SECONDS, json.dumps(intent))
+    except Exception:
+        pass
+
+
+def _merge_intent(previous: dict, current: dict) -> dict:
+    """Carry constraints forward; anything named again in this turn wins."""
+    merged = {key: previous.get(key) for key in INTENT_KEYS}
+    for key in INTENT_KEYS:
+        if current.get(key) is not None:
+            merged[key] = current[key]
+    merged["similar_to"] = current.get("similar_to")
+    return merged
 
 
 SYSTEM_PROMPT_ZH = """你是桌遊推薦顧問。根據使用者需求，從資料庫搜尋合適的桌遊並給出推薦。
@@ -70,23 +112,22 @@ async def _search_games(query: str, limit: int = 8) -> list[dict]:
     return games
 
 
-async def _context_search(players: int | None, playtime: int | None, max_weight: float | None, category: str | None, mechanic: str | None, limit: int = 8) -> list[dict]:
-    fq: dict = {}
-    if players:
-        fq["min_players"] = {"$lte": players}
-        fq["max_players"] = {"$gte": players}
-    if playtime:
-        fq["min_playtime"] = {"$lte": playtime}
-    if max_weight:
-        fq["bgg_weight"] = {"$lte": max_weight}
-    if category:
-        fq["categories.name"] = {"$regex": category, "$options": "i"}
-    if mechanic:
-        fq["mechanics.name"] = {"$regex": mechanic, "$options": "i"}
-
-    cursor = mongo_db.board_games.find(
-        merge_filters(fq, QUALITY_FILTER)
-    ).sort("bgg_rating", -1).limit(limit)
+async def _context_search(players: int | None, playtime: int | None, max_weight: float | None,
+                          category: str | None, mechanic: str | None,
+                          min_weight: float | None = None, limit: int = 8) -> list[dict]:
+    # The chat intent map produces loose labels ("Strategy", "Cooperative")
+    # rather than exact tag names, so they go through the canonicalizer, which
+    # falls back to a substring match when there is no exact tag.
+    query = merge_filters(
+        build_filters(
+            players=players, playtime_max=playtime,
+            min_weight=min_weight, max_weight=max_weight,
+        ),
+        await single_tag_filters(category, mechanic),
+        QUALITY_FILTER,
+        BASE_GAMES_ONLY,
+    )
+    cursor = mongo_db.board_games.find(query).sort("quality_score", -1).limit(limit)
     games = []
     async for doc in cursor:
         games.append({
@@ -108,7 +149,8 @@ async def _context_search(players: int | None, playtime: int | None, max_weight:
 def _parse_intent(message: str) -> dict:
     import re
     msg = message.lower()
-    intent = {"players": None, "playtime": None, "max_weight": None, "category": None, "mechanic": None, "similar_to": None}
+    intent = {"players": None, "playtime": None, "max_weight": None, "min_weight": None,
+              "category": None, "mechanic": None, "similar_to": None}
 
     player_match = re.search(r"(\d+)\s*(人|player|players|人玩)", msg)
     if player_match:
@@ -118,10 +160,12 @@ def _parse_intent(message: str) -> dict:
     if time_match:
         intent["playtime"] = int(time_match.group(1))
 
-    if any(w in msg for w in ["轻", "簡單", "light", "簡", "简单"]):
-        intent["max_weight"] = 2.5
-    elif any(w in msg for w in ["重", "复杂", "heavy", "complex", "深度"]):
-        intent["max_weight"] = 5.0
+    # bgg_weight is a real 1-5 complexity value now, so "heavy" can raise a
+    # floor instead of the old max_weight=5.0, which excluded nothing.
+    if any(w in msg for w in ["轻", "輕", "簡單", "light", "简单"]):
+        intent["max_weight"] = 2.2
+    elif any(w in msg for w in ["重", "复杂", "複雜", "heavy", "complex", "深度"]):
+        intent["min_weight"] = 3.5
 
     cat_map = {
         "合作": "Cooperative", "cooperative": "Cooperative", "派對": "Party", "party": "Party",
@@ -172,7 +216,9 @@ def _format_games(games: list[dict], locale: str) -> str:
 
 @router.post("/recommend")
 async def chat_recommend(msg: ChatMessage):
-    intent = _parse_intent(msg.message)
+    session_id = msg.session_id or uuid.uuid4().hex
+    previous = {} if msg.reset else _load_intent(msg.session_id)
+    intent = _merge_intent(previous, _parse_intent(msg.message))
 
     games = []
     if intent.get("similar_to"):
@@ -207,7 +253,7 @@ async def chat_recommend(msg: ChatMessage):
         if has_filters:
             games = await _context_search(
                 intent["players"], intent["playtime"], intent["max_weight"],
-                intent["category"], intent["mechanic"],
+                intent["category"], intent["mechanic"], intent.get("min_weight"),
             )
 
     if not games:
@@ -240,8 +286,11 @@ async def chat_recommend(msg: ChatMessage):
 
     response_text = _format_games(games, msg.locale)
 
+    _save_intent(session_id, {key: intent.get(key) for key in INTENT_KEYS})
+
     return {
         "message": response_text,
         "games": games,
         "intent": intent,
+        "session_id": session_id,
     }

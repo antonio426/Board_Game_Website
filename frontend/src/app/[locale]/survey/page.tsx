@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations, useLocale } from "next-intl";
 import { Link } from "@/i18n/routing";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api/v1";
+import { apiFetch } from "@/lib/api";
 
 interface Game {
   bgg_id: number;
@@ -23,19 +22,19 @@ interface Game {
   bgg_weight: number;
   categories: { id?: number; name: string; name_zh?: string }[];
   mechanics: { id?: number; name: string; name_zh?: string }[];
+  reasoning?: { matched_categories: string[]; matched_mechanics: string[] };
 }
 
+interface TagVocabulary {
+  name: string;
+  name_zh: string;
+  count: number;
+}
+
+/** How many of the most-used tags to offer as answers. */
+const TAG_CHOICES = 12;
+
 const STEPS = ["players", "playtime", "weight", "preferences"] as const;
-
-const CATEGORIES = [
-  "thematic", "strategy", "party", "family", "abstract",
-  "cooperative", "economic", "negotiation", "adventure", "puzzle",
-] as const;
-
-const MECHANICS = [
-  "worker_placement", "deck_building", "dice_rolling", "tile_placement",
-  "auction", "drafting", "set_collection", "area_control", "hidden_roles", "push_your_luck",
-] as const;
 
 export default function SurveyPage() {
   const t = useTranslations("survey");
@@ -49,6 +48,22 @@ export default function SurveyPage() {
   const [selectedMechs, setSelectedMechs] = useState<string[]>([]);
   const [results, setResults] = useState<Game[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fallback, setFallback] = useState<string | null>(null);
+  const [categories, setCategories] = useState<TagVocabulary[]>([]);
+  const [mechanics, setMechanics] = useState<TagVocabulary[]>([]);
+
+  // The answers are real tag names, so they can be scored directly against the
+  // catalogue instead of being mapped from invented slugs.
+  useEffect(() => {
+    apiFetch<TagVocabulary[]>("/games/categories")
+      .then((tags) => setCategories(tags.slice(0, TAG_CHOICES)))
+      .catch(() => {});
+    apiFetch<TagVocabulary[]>("/games/mechanics")
+      .then((tags) => setMechanics(tags.slice(0, TAG_CHOICES)))
+      .catch(() => {});
+  }, []);
+
+  const tagLabel = (tag: TagVocabulary) => (locale.startsWith("zh") && tag.name_zh ? tag.name_zh : tag.name);
 
   const toggleItem = (list: string[], setList: (v: string[]) => void, item: string) => {
     setList(list.includes(item) ? list.filter((i) => i !== item) : [...list, item]);
@@ -57,14 +72,28 @@ export default function SurveyPage() {
   const submit = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ top_k: "12", players: String(players), playtime: String(playtime) });
-      if (weight < 5) params.set("max_weight", String(weight));
-      if (selectedCats.length > 0) params.set("category", selectedCats[0]);
-      if (selectedMechs.length > 0) params.set("mechanic", selectedMechs[0]);
-      const res = await fetch(`${API_BASE}/recommendations/context?${params}`);
-      const data = await res.json();
+      const data = await apiFetch<{ recommendations: Game[]; fallback: string | null }>(
+        "/recommendations/preferences",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            categories: selectedCats,
+            mechanics: selectedMechs,
+            weight,
+            playtime,
+            players,
+            top_k: 12,
+          }),
+        },
+      );
       setResults(data.recommendations || []);
-    } catch { setResults([]); } finally { setLoading(false); setStep(4); }
+      setFallback(data.fallback);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+      setStep(4);
+    }
   };
 
   const progress = ((step + 1) / (STEPS.length + 1)) * 100;
@@ -76,6 +105,9 @@ export default function SurveyPage() {
           <div className="h-6 w-1 rounded-full" style={{ background: '#D97706' }} />
           <h1 className="font-display text-3xl tracking-wide">{t("resultsTitle")}</h1>
         </div>
+        {fallback === "popular" && (
+          <p className="mb-4 text-sm" style={{ color: 'var(--color-text-muted)' }}>{t("fallbackPopular")}</p>
+        )}
         {results.length === 0 ? (
           <p style={{ color: 'var(--color-text-muted)' }}>{tc("noResults")}</p>
         ) : (
@@ -97,6 +129,11 @@ export default function SurveyPage() {
                       <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         ★ {g.bgg_rating} · {g.min_players}–{g.max_players} · {g.min_playtime}–{g.max_playtime}m
                       </div>
+                      {g.reasoning && (
+                        <div className="mt-1 text-[11px]" style={{ color: '#86EFAC' }}>
+                          {tc("matchedTags")}: {[...g.reasoning.matched_categories, ...g.reasoning.matched_mechanics].slice(0, 3).join(", ")}
+                        </div>
+                      )}
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {g.categories.slice(0, 2).map((c) => <span key={c.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(21,128,61,0.12)', color: '#4ADE80' }}>{locale === "zh" ? (c.name_zh || c.name) : c.name}</span>)}
                         {g.mechanics.slice(0, 2).map((m) => <span key={m.name} className="rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(217,119,6,0.12)', color: '#FBBF24' }}>{locale === "zh" ? (m.name_zh || m.name) : m.name}</span>)}
@@ -179,28 +216,28 @@ export default function SurveyPage() {
             <h2 className="mb-6 font-display text-2xl tracking-wide">{t("prefQ")}</h2>
             <h3 className="mb-2 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>{tc("categories")}</h3>
             <div className="mb-5 flex flex-wrap gap-2">
-              {CATEGORIES.map((c) => (
-                <button key={c} onClick={() => toggleItem(selectedCats, setSelectedCats, c)}
+              {categories.map((c) => (
+                <button key={c.name} onClick={() => toggleItem(selectedCats, setSelectedCats, c.name)}
                   className="rounded-full px-3 py-1.5 text-sm font-medium transition-all"
                   style={{
-                    background: selectedCats.includes(c) ? '#15803D' : 'var(--color-muted)',
-                    color: selectedCats.includes(c) ? '#fff' : '#CBD5E1',
-                    border: `1px solid ${selectedCats.includes(c) ? '#15803D' : 'var(--color-border)'}`,
+                    background: selectedCats.includes(c.name) ? '#15803D' : 'var(--color-muted)',
+                    color: selectedCats.includes(c.name) ? '#fff' : '#CBD5E1',
+                    border: `1px solid ${selectedCats.includes(c.name) ? '#15803D' : 'var(--color-border)'}`,
                   }}
-                >{t(`categories.${c}`)}</button>
+                >{tagLabel(c)}</button>
               ))}
             </div>
             <h3 className="mb-2 text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>{tc("mechanics")}</h3>
             <div className="flex flex-wrap gap-2">
-              {MECHANICS.map((m) => (
-                <button key={m} onClick={() => toggleItem(selectedMechs, setSelectedMechs, m)}
+              {mechanics.map((m) => (
+                <button key={m.name} onClick={() => toggleItem(selectedMechs, setSelectedMechs, m.name)}
                   className="rounded-full px-3 py-1.5 text-sm font-medium transition-all"
                   style={{
-                    background: selectedMechs.includes(m) ? '#D97706' : 'var(--color-muted)',
-                    color: selectedMechs.includes(m) ? '#fff' : '#CBD5E1',
-                    border: `1px solid ${selectedMechs.includes(m) ? '#D97706' : 'var(--color-border)'}`,
+                    background: selectedMechs.includes(m.name) ? '#D97706' : 'var(--color-muted)',
+                    color: selectedMechs.includes(m.name) ? '#fff' : '#CBD5E1',
+                    border: `1px solid ${selectedMechs.includes(m.name) ? '#D97706' : 'var(--color-border)'}`,
                   }}
-                >{t(`mechanics.${m}`)}</button>
+                >{tagLabel(m)}</button>
               ))}
             </div>
           </div>

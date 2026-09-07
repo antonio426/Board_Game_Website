@@ -41,7 +41,7 @@ export default async function GameDetailPage({ params }: { params: Promise<{ id:
     apiFetch<RecResponse>(`/recommendations/similar/${id}?top_k=6&method=hybrid`),
   ]);
 
-  let game: Game | null = gameResult.status === "fulfilled" ? gameResult.value : null;
+  const game: Game | null = gameResult.status === "fulfilled" ? gameResult.value : null;
   const similarGames: Game[] = recResult.status === "fulfilled" ? (recResult.value.recommendations || []) : [];
 
   if (!game || ("error" in game && (game as { error: string }).error === "not_found")) {

@@ -11,7 +11,7 @@ below is in service of **search → filter → recommend**.
 | Frontend | Next.js 16 (App Router) + next-intl + Tailwind v4 | `frontend/`, locale routes under `src/app/[locale]/` |
 | Backend | FastAPI (Python) | `backend/app/`, routers under `app/api/v1/` |
 | Primary DB | MongoDB 7 (`boardgame.board_games`) | 180,401 docs, ~89 MB |
-| Vector DB | Qdrant (`board_games` collection) | 7,833 points only |
+| Vector DB | Qdrant (`board_games` collection) | `BAAI/bge-small-en-v1.5` via fastembed, 384-dim |
 | Cache | Redis 7 | 120–300 s TTL on list/search/recommendation responses |
 
 ## Commands
@@ -21,8 +21,12 @@ docker compose up -d                       # mongo 27017, qdrant 6333, redis 637
 cd backend && source .venv/bin/activate && uvicorn app.main:app --reload   # :8000
 cd frontend && npm run dev                 # :3000
 cd frontend && npx tsc --noEmit && npm run lint    # required before commit
-cd backend && .venv/bin/python scripts/data_health.py       # field coverage after any crawl
-cd backend && .venv/bin/python scripts/ensure_indexes.py    # idempotent, also runs at startup
+cd backend && .venv/bin/python scripts/data_health.py          # field coverage after any crawl
+cd backend && .venv/bin/python scripts/ensure_indexes.py       # idempotent, also runs at startup
+cd backend && .venv/bin/python scripts/compute_quality_score.py  # after any rating refresh
+cd backend && .venv/bin/python scripts/backfill_dynamicinfo.py   # weight, polls, ranks (resumable)
+cd backend && .venv/bin/python scripts/mark_expansions.py        # is_expansion from rank data
+cd backend && .venv/bin/python scripts/index_embeddings.py --recreate  # rebuild Qdrant vectors
 python3 -c "import json;[json.load(open(f)) for f in ('frontend/src/i18n/en.json','frontend/src/i18n/zh.json')]"
 ```
 
@@ -41,9 +45,15 @@ Fields present on every doc: `bgg_id`, `name_en`, `name_zh`, `description_en`, `
 `mechanics[]`, `designers[]`, `publishers[]`, `image`, `thumbnail`, `local_image`,
 `local_thumbnail`, `aliases[]`, `is_expansion`, `series`, `expansions`, `subcategory_ranks`.
 
+Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
+`scripts/compute_quality_score.py`), `bgg_weight` + `bgg_weight_votes`, `best_players[]`,
+`recommended_players[]`, `language_dependence`, `player_age`, `subcategory_ranks[]` and
+`dynamicinfo_at` (`scripts/backfill_dynamicinfo.py`), `subtype` + `subtype_at`
+(`scripts/backfill_subtypes.py`).
+
 `categories` / `mechanics` are objects: `{id, name, name_zh}`. 85 categories, 196 mechanics.
 
-### Field coverage (measured, keep this honest)
+### Field coverage (measured before the Phase 1 backfills; re-run `scripts/data_health.py`)
 
 | Field | Docs with usable value | Consequence |
 |---|---|---|
@@ -60,17 +70,21 @@ Fields present on every doc: `bgg_id`, `name_en`, `name_zh`, `description_en`, `
 
 ### Known traps
 
-- **Semantic search is not semantic.** `app/recommenders/embedding.py::_text_to_vector` hashes
-  the text with SHA-256 and spreads the bytes through `sin()`; it is a placeholder, not an
-  embedding model, so Qdrant returns unrelated games. The path is gated behind
-  `SEMANTIC_SEARCH_ENABLED` (default `false`) and callers fall back to lexical search. Turn it on
-  only after a real model replaces `_text_to_vector`.
-- **Playtime and player filters mean the opposite of what the UI implies.** `max_playtime=30`
-  compiles to `max_playtime >= 30` ("its ceiling is at least 30 min"), and `min_players=4` to
-  `min_players <= 4`. Each is a single-sided range-overlap test, not "games that fit in 30
-  minutes" or "games for 4 players". Fixing the semantics is plan item P3.4.
-- **`bgg_weight` is empty** (9 docs), so `min_weight` / `max_weight` filters and the weight
-  dimension of `ContentBasedRecommender` do nothing until the backfill lands.
+- **Semantic search is English-only.** `BAAI/bge-small-en-v1.5` is a retrieval model; a
+  multilingual paraphrase model was tried first and retrieved far worse ("birds engine builder"
+  returned five games with Birds in the title and no Wingspan). Chinese queries go through the
+  lexical path, which matches `name_zh` and `aliases`. `SEMANTIC_SEARCH_ENABLED=false` turns the
+  vector path off entirely and avoids the model download at boot.
+- **Two vocabularies exist for players and playtime.** `players`, `playtime_max` and
+  `playtime_min` mean what they say. The older `min_players`, `max_players`, `min_playtime` and
+  `max_playtime` are single-sided range-overlap tests — `max_playtime=30` means "its ceiling is at
+  least 30 minutes" — kept only for compatibility. Use the first set.
+- **`bgg_weight` is being backfilled.** Until `scripts/backfill_dynamicinfo.py` finishes its sweep,
+  complexity filters only see the games already covered; check with `scripts/data_health.py`.
+- **The BGG XML API answers 401 now.** Crawlers use `api.geekdo.com/api/dynamicinfo` (weight,
+  player polls, subdomain ranks) and `api.geekdo.com/api/geekitems` (real subtype). That API
+  starts returning 429 above roughly ten requests a second across all jobs, so keep
+  `CONCURRENCY` low and never run both sweeps at once.
 - **`bgg_rank` is populated for all 180 k docs**, including 155 k with rank > 25 000, and the head
   of the list has ties (rank 2 is both Ark Nova and a game with `users_rated = 0`). Sorting by
   rank is meaningful only near the top.
@@ -84,7 +98,7 @@ Fields present on every doc: `bgg_id`, `name_en`, `name_zh`, `description_en`, `
   not exist (real name `users_rated`), which silently disabled the `min_ratings` filter and the
   zh-locale quality gate.
 
-## Quality gate, indexes, tags
+## Core modules
 
 - `app/core/quality.py` is the only place that decides what is showable: `QUALITY_FILTER`
   (`description_en` non-empty), `quality_gate(locale, min_users_rated)` which adds the zh rule
@@ -97,6 +111,14 @@ Fields present on every doc: `bgg_id`, `name_en`, `name_zh`, `description_en`, `
   the cached vocabulary (85 + 196 names, 10 min TTL) so the filter is an indexed equality match
   instead of a case-insensitive regex — worth ~230 ms per request. It falls back to regex for
   values that are not real tag names.
+- `app/core/filters.py::build_filters(...)` turns request parameters into one Mongo filter, shared
+  by the list, search and facet endpoints so a chip's count always matches the page behind it.
+  `BASE_GAMES_ONLY` excludes expansions, which is the default everywhere.
+- `app/core/search.py` owns name matching and ranking: `build_name_query` (CJK variants across
+  `name_en`/`name_zh`/`aliases`), `relevance` (exact 100 > prefix 60 > word 40 > substring 20,
+  minus 25 for an expansion, plus `quality_score`), `paged_search` and `rerank_semantic`.
+- `app/recommenders/diversity.py::diversify` re-ranks a scored list with MMR (λ 0.7) and caps two
+  per series and two per designer, so "similar to Catan" stops being five Catan editions.
 
 ## Search quality harness
 
@@ -109,24 +131,40 @@ cd backend && .venv/bin/python scripts/eval_search.py --base http://localhost:80
 cd backend && .venv/bin/python scripts/eval_search.py --compare tests/eval_baseline.json
 ```
 
-Baseline after Phase 0 (`tests/eval_baseline.json`):
-`recall@10 84.2%, top1 66.7%, precision@10 84.3%, 4 zero-result cases`.
+Phase 0 baseline (`tests/eval_baseline.json`): `recall@10 84.2%, top1 66.7%, precision@10 84.3%,
+4 zero-result cases`. After Phases 1-4: `top1 100%, precision@10 94%`.
+
+## Defaults worth knowing
+
+- Sort defaults to `quality` (`quality_score`, Bayesian with m=1000), not `bgg_rank`.
+- Expansions are excluded unless `include_expansions=true`: they outscore the base games they
+  extend, so an unfiltered top ten was mostly Spirit Island and Ark Nova expansions.
+- The zh locale additionally hides games below `bgg_rating 6` with fewer than 50 ratings.
+- Recommendation fallback chain: collaborative (needs 5+ interactions) → content similarity →
+  taste profile → `quality_score` leaderboard. Nothing returns an empty list.
 
 ## API surface
 
-- `GET /api/v1/games` — paged list, filters (`min_players`, `max_playtime`, `min_rating`,
-  `min_weight`/`max_weight`, `category`, `mechanic`, `q`), `sort` ∈ rating|rank|name|weight|year.
-  Single-value category/mechanic, matched by case-insensitive `$regex`.
-- `GET /api/v1/games/search` — accepts comma-separated `categories`, `mechanics`, `designers`,
-  `publishers` (`$in`), plus `semantic=true` to route through Qdrant with a regex fallback.
+- `GET /api/v1/games` — paged list. `players`, `best_at_players`, `playtime_max`, `playtime_min`,
+  `min_rating`, `min_weight`/`max_weight`, `category`, `mechanic`, `q`, `include_expansions`,
+  `sort` ∈ quality|rating|rank|name|weight|year.
+- `GET /api/v1/games/search` — everything above plus comma-separated `categories`, `mechanics`,
+  `designers`, `publishers`, `categories_mode`/`mechanics_mode` (`any` = `$in`, `all` = `$all`),
+  `exclude_categories`, `exclude_mechanics`, `min_ratings`, and `semantic=true`.
+- `GET /api/v1/games/facets` — the same filter parameters, returning how many games each remaining
+  option would leave (tags, player counts, playtime and weight bands).
 - `GET /api/v1/games/{bgg_id}`, `/games/random`, `/games/categories`, `/games/mechanics`.
-- `GET /api/v1/recommendations/similar/{bgg_id}?method=content|collaborative|hybrid`,
-  `/recommendations/for-me`, `/recommendations/context`, `/recommendations/semantic`, `POST /index`.
-- `POST /api/v1/chat` — keyword-extraction advisor over Mongo, no LLM memory between turns.
+- `GET /api/v1/recommendations/similar/{bgg_id}?method=content|collaborative|hybrid&diverse=true`
+  — each result carries `reasoning.matched_categories` / `matched_mechanics`.
+- `POST /api/v1/recommendations/preferences` — cold start from survey answers.
+- `GET /api/v1/recommendations/for-me`, `/context`, `/semantic`, `POST /index`.
+- `POST /api/v1/chat/recommend` — keyword advisor; pass `session_id` back to keep the accumulated
+  constraints (stored in Redis for 30 minutes).
 
-Recommenders live in `app/recommenders/`: `content_based.py` (one-hot categories + mechanics +
-weight/players/playtime, cosine), `collaborative.py` (item-item cosine over `user_actions`,
-built in memory at first call), `hybrid.py`, `embedding.py` (Qdrant).
+Recommenders live in `app/recommenders/`: `content_based.py` (sparse tag-set similarity over the
+recommendable corpus, returns the overlap it scored with), `collaborative.py` (item-item cosine
+over `user_actions`, built in memory at first call), `hybrid.py` (blend plus fallback chain),
+`diversity.py` (MMR), `embedding.py` (fastembed + Qdrant).
 
 Collaborative filtering has 15 `user_actions` rows and 0 users — it returns nothing in practice.
 Treat content-based plus popularity as the only live ranking signals today.

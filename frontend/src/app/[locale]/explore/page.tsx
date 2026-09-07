@@ -56,7 +56,7 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<"semantic" | "text">("semantic");
   const [filter, setFilter] = useState<FilterState>({
-    page: 1, sort: "rank", min_players: "", max_playtime: "",
+    page: 1, sort: "quality", min_players: "", max_playtime: "",
     min_weight: "", max_weight: "", category: "", mechanic: "", q: "", semantic: "",
   });
   const [categories, setCategories] = useState<{ name: string; name_zh: string; count: number }[]>([]);
@@ -97,15 +97,16 @@ export default function ExplorePage() {
     if (filter.mechanic) params.set("mechanic", filter.mechanic);
 
     try {
-      let res: GamesResponse;
+      // Both modes hit the same endpoint; `semantic=true` swaps lexical name
+      // matching for vector similarity. The old `/games/semantic` path never
+      // existed, so semantic mode always fell into the catch below.
       if (searchMode === "semantic" && filter.semantic.trim()) {
         params.set("q", filter.semantic.trim());
-        res = await apiFetch<GamesResponse>(`/games/semantic?${params.toString()}`);
-      } else {
-        if (filter.q) params.set("q", filter.q);
-        res = await apiFetch<GamesResponse>(`/games?${params.toString()}`);
+        params.set("semantic", "true");
+      } else if (filter.q) {
+        params.set("q", filter.q);
       }
-      setData(res);
+      setData(await apiFetch<GamesResponse>(`/games/search?${params.toString()}`));
     } catch {
       setData(null);
     } finally {
@@ -114,7 +115,9 @@ export default function ExplorePage() {
     }
   }, [filter, searchMode]);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => { fetchGames(); }, [fetchGames]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateFilter = (key: keyof FilterState, value: string) => {
     setFilter((prev) => ({ ...prev, [key]: value, page: key !== "page" ? 1 : Number(value) || 1 }));

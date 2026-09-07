@@ -1,178 +1,178 @@
+"""Content-based similarity over categories, mechanics, weight and length.
+
+The previous implementation built a dense one-hot vector per game — 281 tag
+dimensions plus four numeric ones — for all 180k documents, including the 137k
+stub rows that never appear in results, and compared the query against every
+one of them. This version keeps tags as sets and only loads games that can
+actually be recommended, which makes the comparison both faster and explainable:
+the overlap it scores with is exactly what the UI shows as "why this one".
+"""
 import math
-from collections import defaultdict
 
 from app.core.database import mongo_db
+from app.core.filters import BASE_GAMES_ONLY
+from app.core.quality import merge_filters, QUALITY_FILTER
+
+# How much of the similarity each signal is worth.
+TAG_WEIGHT = 0.75
+WEIGHT_WEIGHT = 0.15
+LENGTH_WEIGHT = 0.10
+
+# Complexity and playtime distances are normalised against these spans.
+WEIGHT_SPAN = 4.0        # bgg_weight runs 1-5
+PLAYTIME_SPAN = 180.0    # minutes; beyond this, games are simply "long"
+
+CORPUS_FILTER = merge_filters(QUALITY_FILTER, BASE_GAMES_ONLY, {"users_rated": {"$gte": 30}})
+PROJECTION = {
+    "bgg_id": 1, "categories": 1, "mechanics": 1, "bgg_weight": 1,
+    "min_players": 1, "max_players": 1, "min_playtime": 1, "max_playtime": 1,
+    "quality_score": 1, "series": 1,
+}
+
+
+def _names(doc: dict, field: str) -> frozenset[str]:
+    values = set()
+    for item in doc.get(field) or []:
+        name = item.get("name") if isinstance(item, dict) else item
+        if name:
+            values.add(name)
+    return frozenset(values)
+
+
+def _playtime(doc: dict) -> float:
+    low = doc.get("min_playtime") or 0
+    high = doc.get("max_playtime") or low
+    return (low + high) / 2 if (low or high) else 0.0
 
 
 class ContentBasedRecommender:
     def __init__(self):
-        self._game_features: dict[int, dict] = {}
-        self._category_index: dict[str, int] = {}
-        self._mechanic_index: dict[str, int] = {}
+        self._features: dict[int, dict] = {}
         self._loaded = False
 
-    async def _ensure_loaded(self):
+    async def _ensure_loaded(self) -> None:
         if self._loaded:
             return
-        await self._build_feature_index()
+        cursor = mongo_db.board_games.find(CORPUS_FILTER, PROJECTION)
+        async for doc in cursor:
+            self._features[doc["bgg_id"]] = {
+                "categories": _names(doc, "categories"),
+                "mechanics": _names(doc, "mechanics"),
+                "weight": doc.get("bgg_weight") or 0.0,
+                "playtime": _playtime(doc),
+                "quality": doc.get("quality_score") or 0.0,
+            }
         self._loaded = True
 
-    async def _build_feature_index(self):
-        cat_set: set[str] = set()
-        mech_set: set[str] = set()
-
-        cursor = mongo_db.board_games.find(
-            {},
-            {"bgg_id": 1, "categories": 1, "mechanics": 1, "bgg_weight": 1,
-             "min_players": 1, "max_players": 1, "min_playtime": 1, "max_playtime": 1},
-        )
-
-        games_raw: dict[int, dict] = {}
-        async for doc in cursor:
-            bgg_id = doc["bgg_id"]
-            games_raw[bgg_id] = doc
-            for c in doc.get("categories", []):
-                cat_set.add(c["name"] if isinstance(c, dict) else c)
-            for m in doc.get("mechanics", []):
-                mech_set.add(m["name"] if isinstance(m, dict) else m)
-
-        sorted_cats = sorted(cat_set)
-        sorted_mechs = sorted(mech_set)
-        self._category_index = {c: i for i, c in enumerate(sorted_cats)}
-        self._mechanic_index = {m: i for i, m in enumerate(sorted_mechs)}
-
-        cat_dim = len(self._category_index)
-        mech_dim = len(self._mechanic_index)
-
-        for bgg_id, doc in games_raw.items():
-            feature = [0.0] * (cat_dim + mech_dim + 4)
-
-            for c in doc.get("categories", []):
-                name = c["name"] if isinstance(c, dict) else c
-                idx = self._category_index.get(name)
-                if idx is not None:
-                    feature[idx] = 1.0
-
-            for m in doc.get("mechanics", []):
-                name = m["name"] if isinstance(m, dict) else m
-                idx = self._mechanic_index.get(name)
-                if idx is not None:
-                    feature[cat_dim + idx] = 1.0
-
-            weight = doc.get("bgg_weight", 0) or 0
-            feature[cat_dim + mech_dim] = min(weight / 5.0, 1.0)
-
-            avg_players = ((doc.get("min_players", 0) or 0) + (doc.get("max_players", 0) or 0)) / 2
-            feature[cat_dim + mech_dim + 1] = min(avg_players / 10.0, 1.0)
-
-            avg_playtime = ((doc.get("min_playtime", 0) or 0) + (doc.get("max_playtime", 0) or 0)) / 2
-            feature[cat_dim + mech_dim + 2] = min(avg_playtime / 240.0, 1.0)
-
-            feature[cat_dim + mech_dim + 3] = 1.0
-
-            self._game_features[bgg_id] = {"feature": feature, "raw": doc}
+    @staticmethod
+    def _tag_similarity(left: frozenset[str], right: frozenset[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left & right) / math.sqrt(len(left) * len(right))
 
     @staticmethod
-    def _cosine_similarity(a: list[float], b: list[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = math.sqrt(sum(x * x for x in a))
-        norm_b = math.sqrt(sum(x * x for x in b))
-        if norm_a == 0 or norm_b == 0:
+    def _numeric_similarity(left: float, right: float, span: float) -> float:
+        if not left or not right:
             return 0.0
-        return dot / (norm_a * norm_b)
+        return max(0.0, 1.0 - abs(left - right) / span)
+
+    def _score(self, target: dict, other: dict) -> float:
+        tags = (
+            self._tag_similarity(target["categories"], other["categories"])
+            + self._tag_similarity(target["mechanics"], other["mechanics"])
+        ) / 2
+        return (
+            TAG_WEIGHT * tags
+            + WEIGHT_WEIGHT * self._numeric_similarity(target["weight"], other["weight"], WEIGHT_SPAN)
+            + LENGTH_WEIGHT * self._numeric_similarity(target["playtime"], other["playtime"], PLAYTIME_SPAN)
+        )
+
+    @staticmethod
+    def _overlap(target: dict, other: dict) -> dict:
+        return {
+            "matched_categories": sorted(target["categories"] & other["categories"]),
+            "matched_mechanics": sorted(target["mechanics"] & other["mechanics"]),
+        }
 
     async def get_similar(self, bgg_id: int, top_k: int = 10) -> list[dict]:
         await self._ensure_loaded()
-
-        target = self._game_features.get(bgg_id)
+        target = self._features.get(bgg_id)
         if not target:
             return []
 
-        target_vec = target["feature"]
-        scores = []
-
-        for other_id, other_data in self._game_features.items():
+        scored = []
+        for other_id, other in self._features.items():
             if other_id == bgg_id:
                 continue
-            sim = self._cosine_similarity(target_vec, other_data["feature"])
-            scores.append({"bgg_id": other_id, "score": round(sim, 4)})
+            score = self._score(target, other)
+            if score <= 0:
+                continue
+            scored.append({
+                "bgg_id": other_id,
+                "score": round(score, 4),
+                "reasoning": self._overlap(target, other),
+            })
 
-        scores.sort(key=lambda x: x["score"], reverse=True)
-        return scores[:top_k]
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return scored[:top_k]
 
     async def get_similar_games_with_data(self, bgg_id: int, top_k: int = 10) -> list[dict]:
-        similar = await self.get_similar(bgg_id, top_k)
-        if not similar:
-            return []
-
-        ids = [s["bgg_id"] for s in similar]
-        score_map = {s["bgg_id"]: s["score"] for s in similar}
-
-        games = []
-        cursor = mongo_db.board_games.find({"bgg_id": {"$in": ids}})
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = score_map.get(doc["bgg_id"], 0)
-            games.append(doc)
-
-        games.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
-        return games
+        return await attach_games(await self.get_similar(bgg_id, top_k))
 
     async def recommend_for_preferences(
         self,
         liked_categories: list[str] | None = None,
         liked_mechanics: list[str] | None = None,
         preferred_weight: float | None = None,
-        preferred_players: int | None = None,
+        preferred_playtime: float | None = None,
+        exclude_ids: set[int] | None = None,
         top_k: int = 10,
     ) -> list[dict]:
+        """Rank the corpus against a taste profile rather than another game."""
         await self._ensure_loaded()
 
-        if not self._category_index and not self._mechanic_index:
+        target = {
+            "categories": frozenset(liked_categories or []),
+            "mechanics": frozenset(liked_mechanics or []),
+            "weight": preferred_weight or 0.0,
+            "playtime": preferred_playtime or 0.0,
+        }
+        if not (target["categories"] or target["mechanics"] or target["weight"]):
             return []
 
-        cat_dim = len(self._category_index)
-        mech_dim = len(self._mechanic_index)
-        query_vec = [0.0] * (cat_dim + mech_dim + 4)
+        excluded = exclude_ids or set()
+        scored = []
+        for bgg_id, other in self._features.items():
+            if bgg_id in excluded:
+                continue
+            score = self._score(target, other)
+            if score <= 0:
+                continue
+            scored.append({
+                "bgg_id": bgg_id,
+                # A tie on taste is broken by how well the game is regarded.
+                "score": round(score + other["quality"] / 100, 4),
+                "reasoning": self._overlap(target, other),
+            })
 
-        if liked_categories:
-            for c in liked_categories:
-                idx = self._category_index.get(c)
-                if idx is not None:
-                    query_vec[idx] = 1.0
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return scored[:top_k]
 
-        if liked_mechanics:
-            for m in liked_mechanics:
-                idx = self._mechanic_index.get(m)
-                if idx is not None:
-                    query_vec[cat_dim + idx] = 1.0
 
-        if preferred_weight is not None:
-            query_vec[cat_dim + mech_dim] = min(preferred_weight / 5.0, 1.0)
+async def attach_games(scored: list[dict]) -> list[dict]:
+    """Hydrate scored `bgg_id`s into full documents, preserving order."""
+    if not scored:
+        return []
 
-        if preferred_players is not None:
-            query_vec[cat_dim + mech_dim + 1] = min(preferred_players / 10.0, 1.0)
+    by_id = {item["bgg_id"]: item for item in scored}
+    games = []
+    async for doc in mongo_db.board_games.find({"bgg_id": {"$in": list(by_id)}}):
+        item = by_id[doc["bgg_id"]]
+        doc["id"] = str(doc.pop("_id"))
+        doc["recommendation_score"] = item["score"]
+        if item.get("reasoning"):
+            doc["reasoning"] = item["reasoning"]
+        games.append(doc)
 
-        scores = []
-        for bgg_id, data in self._game_features.items():
-            sim = self._cosine_similarity(query_vec, data["feature"])
-            scores.append({"bgg_id": bgg_id, "score": round(sim, 4)})
-
-        scores.sort(key=lambda x: x["score"], reverse=True)
-        top = scores[:top_k]
-
-        if not top:
-            return []
-
-        ids = [s["bgg_id"] for s in top]
-        score_map = {s["bgg_id"]: s["score"] for s in top}
-
-        games = []
-        cursor = mongo_db.board_games.find({"bgg_id": {"$in": ids}})
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = score_map.get(doc["bgg_id"], 0)
-            games.append(doc)
-
-        games.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
-        return games
+    games.sort(key=lambda doc: doc.get("recommendation_score", 0), reverse=True)
+    return games

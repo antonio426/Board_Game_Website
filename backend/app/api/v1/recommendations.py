@@ -1,14 +1,17 @@
 import json
-from fastapi import APIRouter, Query, Request
 
+from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel, Field
+
+from app.core.database import mongo_db, redis_client
+from app.core.filters import BASE_GAMES_ONLY, build_filters
+from app.core.quality import QUALITY_FILTER, merge_filters, quality_gate
+from app.core.search import build_name_query, rank_by_relevance
 from app.core.security import decode_access_token
-from app.core.database import redis_client
-from app.core.cjk import expand_query_variants
-from app.core.quality import QUALITY_FILTER, merge_filters
-from app.core.tags import tag_filter
-from app.recommenders.hybrid import HybridRecommender
-from app.recommenders.content_based import ContentBasedRecommender
+from app.recommenders.content_based import ContentBasedRecommender, attach_games
+from app.recommenders.diversity import CANDIDATE_MULTIPLIER, diversify
 from app.recommenders.embedding import index_games, search_similar_with_data, semantic_enabled
+from app.recommenders.hybrid import HybridRecommender, popular_games
 
 router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
@@ -30,25 +33,42 @@ def _set_cache(key: str, data, ttl: int = 180):
         pass
 
 
+def _user_id(request: Request) -> str | None:
+    token = request.cookies.get("token")
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    return payload.get("sub") if payload else None
+
+
+def _showable(games: list[dict]) -> list[dict]:
+    return [game for game in games if (game.get("description_en") or "").strip()]
+
+
 @router.get("/similar/{bgg_id}")
 async def similar_games(
     bgg_id: int,
     top_k: int = Query(6, ge=1, le=20),
     method: str = Query("hybrid", enum=["content", "collaborative", "hybrid"]),
+    diverse: bool = Query(True, description="Spread results across series and designers"),
 ):
-    cache_key = f"rec:similar:{bgg_id}:{top_k}:{method}"
+    """Games like this one, each carrying the tags it has in common."""
+    cache_key = f"rec:similar:{bgg_id}:{top_k}:{method}:{diverse}"
     cached = await _cached(cache_key, ttl=180)
     if cached:
         return cached
 
-    if method == "content":
-        games = await _cb.get_similar_games_with_data(bgg_id, top_k)
-    elif method == "collaborative":
-        games = await _hybrid.cf.get_similar_games_with_data(bgg_id, top_k)
-    else:
-        games = await _hybrid.get_similar_with_data(bgg_id, top_k)
+    pool = top_k * CANDIDATE_MULTIPLIER if diverse else top_k
 
-    games = [g for g in games if g.get("description_en")]
+    if method == "content":
+        games = await _cb.get_similar_games_with_data(bgg_id, pool)
+    elif method == "collaborative":
+        games = await attach_games(await _hybrid.cf.get_similar_games(bgg_id, pool))
+    else:
+        games = await _hybrid.get_similar_with_data(bgg_id, pool)
+
+    games = _showable(games)
+    games = diversify(games, top_k) if diverse else games[:top_k]
 
     result = {"bgg_id": bgg_id, "method": method, "recommendations": games}
     _set_cache(cache_key, result, ttl=180)
@@ -63,76 +83,97 @@ async def recommend_for_me(
     max_players: int | None = None,
     max_playtime: int | None = None,
 ):
-    token = request.cookies.get("token")
-    user_id = None
-    if token:
-        payload = decode_access_token(token)
-        if payload:
-            user_id = payload.get("sub")
+    """Personalised where possible, popular where not — never empty."""
+    user_id = _user_id(request)
 
     if user_id:
         games = await _hybrid.recommend_for_user(
-            user_id, top_k, min_players=min_players,
-            max_players=max_players, max_playtime=max_playtime,
+            user_id, top_k * CANDIDATE_MULTIPLIER,
+            min_players=min_players, max_players=max_players, max_playtime=max_playtime,
         )
-        games = [g for g in games if g.get("description_en")]
+        games = diversify(_showable(games), top_k)
     else:
-        from app.core.database import mongo_db
-        cursor = mongo_db.board_games.find(
-            merge_filters(QUALITY_FILTER, {"bgg_rating": {"$gt": 0}})
-        ).sort("bgg_rating", -1).limit(top_k)
-        games = []
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = doc.get("bgg_rating", 0)
-            games.append(doc)
+        games = await popular_games(top_k)
 
     return {"user_id": user_id, "recommendations": games}
+
+
+class PreferenceRequest(BaseModel):
+    """The survey answers, in the shape the content recommender scores against."""
+    categories: list[str] = Field(default_factory=list)
+    mechanics: list[str] = Field(default_factory=list)
+    weight: float | None = Field(default=None, ge=1, le=5)
+    playtime: float | None = Field(default=None, ge=0)
+    players: int | None = Field(default=None, ge=1)
+    exclude_ids: list[int] = Field(default_factory=list)
+    top_k: int = Field(default=10, ge=1, le=50)
+
+
+@router.post("/preferences")
+async def recommend_for_preferences(preferences: PreferenceRequest):
+    """Cold-start path: rank on stated taste when there is no history to learn from."""
+    scored = await _cb.recommend_for_preferences(
+        liked_categories=preferences.categories,
+        liked_mechanics=preferences.mechanics,
+        preferred_weight=preferences.weight,
+        preferred_playtime=preferences.playtime,
+        exclude_ids=set(preferences.exclude_ids),
+        top_k=preferences.top_k * CANDIDATE_MULTIPLIER,
+    )
+    games = _showable(await attach_games(scored))
+
+    if preferences.players:
+        games = [
+            game for game in games
+            if (game.get("min_players") or 0) <= preferences.players <= (game.get("max_players") or 0)
+        ]
+
+    if not games:
+        return {"recommendations": await popular_games(preferences.top_k), "fallback": "popular"}
+
+    return {"recommendations": diversify(games, preferences.top_k), "fallback": None}
 
 
 @router.get("/context")
 async def context_recommendations(
     top_k: int = Query(10, ge=1, le=50),
+    locale: str = Query("en"),
     players: int | None = None,
     playtime: int | None = None,
     max_weight: float | None = None,
     category: str | None = None,
     mechanic: str | None = None,
 ):
-    cache_key = f"rec:ctx:{top_k}:{players}:{playtime}:{max_weight}:{category}:{mechanic}"
+    """"We are three people with an hour" — filter first, then rank by quality."""
+    cache_key = f"rec:ctx:{top_k}:{locale}:{players}:{playtime}:{max_weight}:{category}:{mechanic}"
     cached = await _cached(cache_key, ttl=120)
     if cached:
         return cached
 
-    filter_query: dict = dict(QUALITY_FILTER)
-    if players:
-        filter_query["min_players"] = {"$lte": players}
-        filter_query["max_players"] = {"$gte": players}
-    if playtime:
-        filter_query["min_playtime"] = {"$lte": playtime}
-    if max_weight:
-        filter_query["bgg_weight"] = {"$lte": max_weight}
-    if category:
-        filter_query.update(await tag_filter("categories", category))
-    if mechanic:
-        filter_query.update(await tag_filter("mechanics", mechanic))
+    filter_query = merge_filters(
+        build_filters(
+            categories=category, mechanics=mechanic,
+            players=players, playtime_max=playtime, max_weight=max_weight,
+        ),
+        quality_gate(locale),
+        BASE_GAMES_ONLY,
+    )
 
-    from app.core.database import mongo_db
-    cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).limit(top_k)
+    cursor = mongo_db.board_games.find(filter_query).sort("quality_score", -1).limit(top_k * CANDIDATE_MULTIPLIER)
     games = []
     async for doc in cursor:
         doc["id"] = str(doc.pop("_id"))
-        doc["recommendation_score"] = doc.get("bgg_rating", 0)
+        doc["recommendation_score"] = doc.get("quality_score", 0)
         games.append(doc)
 
-    result = {"context": filter_query, "recommendations": games}
+    result = {"context": filter_query, "recommendations": diversify(games, top_k)}
     _set_cache(cache_key, result, ttl=120)
     return result
 
 
 @router.post("/index")
 async def build_index():
-    count = await index_games(batch_size=500)
+    count = await index_games()
     return {"status": "ok", "indexed": count}
 
 
@@ -140,52 +181,37 @@ async def build_index():
 async def semantic_search(
     q: str = Query(..., min_length=1),
     top_k: int = Query(10, ge=1, le=50),
+    locale: str = Query("en"),
 ):
-    cache_key = f"rec:sem:{q}:{top_k}"
+    """Meaning-based search, with a lexical top-up when vectors fall short."""
+    cache_key = f"rec:sem:{q}:{top_k}:{locale}"
     cached = await _cached(cache_key, ttl=300)
     if cached:
         return cached
 
-    from app.core.database import mongo_db
-
-    enriched: list[dict] = []
+    games: list[dict] = []
     if semantic_enabled():
-        games = await search_similar_with_data(q, top_k * 5)
-        enriched = [g for g in games if g.get("name_zh") or g.get("description_en")][:top_k]
+        games = _showable(await search_similar_with_data(q, top_k * 2))[:top_k]
 
-    if len(enriched) < top_k:
-        remaining = top_k - len(enriched)
-        existing_ids = [g["bgg_id"] for g in enriched]
-        q_variants = expand_query_variants(q)
-        or_clauses = []
-        for v in q_variants:
-            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"categories.name": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"categories.name_zh": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"mechanics.name": {"$regex": v, "$options": "i"}})
-        fq = merge_filters(
+    if len(games) < top_k:
+        seen = {game["bgg_id"] for game in games}
+        lexical_filter = merge_filters(
             QUALITY_FILTER,
-            {"bgg_id": {"$nin": existing_ids}, "$or": or_clauses},
+            BASE_GAMES_ONLY,
+            {"bgg_id": {"$nin": list(seen)}},
+            build_name_query(q),
         )
-        cursor = mongo_db.board_games.find(fq).sort("bgg_rating", -1).limit(remaining)
+        cursor = mongo_db.board_games.find(lexical_filter).sort("quality_score", -1).limit(top_k * 3)
+        extra = []
         async for doc in cursor:
             doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = 0.5
-            enriched.append(doc)
+            doc["recommendation_score"] = doc.get("quality_score", 0)
+            extra.append(doc)
+        games.extend(rank_by_relevance(extra, q)[: top_k - len(games)])
 
-    if len(enriched) < top_k:
-        remaining = top_k - len(enriched)
-        existing_ids = [g["bgg_id"] for g in enriched]
-        cursor = mongo_db.board_games.find(
-            merge_filters(QUALITY_FILTER, {"bgg_id": {"$nin": existing_ids}})
-        ).sort("bgg_rating", -1).limit(remaining)
-        async for doc in cursor:
-            doc["id"] = str(doc.pop("_id"))
-            doc["recommendation_score"] = 0.1
-            enriched.append(doc)
+    if not games:
+        games = await popular_games(top_k)
 
-    result = {"query": q, "recommendations": enriched}
+    result = {"query": q, "semantic": semantic_enabled(), "recommendations": games}
     _set_cache(cache_key, result, ttl=300)
     return result

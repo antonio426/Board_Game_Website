@@ -27,7 +27,12 @@
     "featured": "精選",
     "description": "遊戲說明",
     "min": "最少",
-    "max": "最多"
+    "max": "最多",
+    "matchedTags": "共同點",
+    "ratedBy": "人評分",
+    "bestAt": "最佳人數",
+    "complexityLabel": "複雜度",
+    "language": "語言需求"
   },
   "nav": {
     "home": "首頁",
@@ -92,7 +97,8 @@
       "area_control": "區域控制",
       "hidden_roles": "隱藏身分",
       "push_your_luck": "考驗運氣"
-    }
+    },
+    "fallbackPopular": "沒有完全符合的結果，先看看大家公認好玩的。"
   },
   "chat": {
     "title": "AI 桌遊顧問",
@@ -137,7 +143,32 @@
     "next": "下一頁",
     "page": "第",
     "of": "頁，共",
-    "viewDetails": "查看詳情"
+    "viewDetails": "查看詳情",
+    "sortQuality": "綜合評價",
+    "results": "款",
+    "clearFilters": "清除全部",
+    "hideExpansions": "隱藏擴充",
+    "showExpansions": "包含擴充",
+    "playersExact": "幾人玩",
+    "playersAny": "不限",
+    "bestAtPlayers": "此人數最佳",
+    "playtimeUnder": "時間內玩完",
+    "anyLength": "不限長度",
+    "complexity": "複雜度",
+    "complexityLight": "輕鬆",
+    "complexityMedium": "中等",
+    "complexityHeavy": "重度",
+    "complexityAny": "不限",
+    "includeTag": "點一下加入，再點一下排除",
+    "excluded": "已排除",
+    "showMore": "顯示更多",
+    "showLess": "收合",
+    "activeFilters": "已套用篩選",
+    "random": "隨機",
+    "backToTop": "回到頂部",
+    "minutes": "分鐘",
+    "matchedTags": "共同點",
+    "ratedBy": "{count} 人在 BGG 評分"
   },
   "explore": {
     "title": "探索桌遊",

@@ -3,10 +3,10 @@ import logging
 from fastapi import APIRouter, Query
 from bson import ObjectId
 
-from app.core.cjk import expand_query_variants
 from app.core.database import mongo_db, redis_client
+from app.core.filters import BASE_GAMES_ONLY, build_filters, single_tag_filters
 from app.core.quality import merge_filters, quality_gate
-from app.core.tags import tag_filter
+from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
 from app.recommenders.embedding import search_similar, semantic_enabled
 
 logger = logging.getLogger(__name__)
@@ -14,12 +14,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/games", tags=["games"])
 
 SORT_MAP = {
+    "quality": [("quality_score", -1)],
     "rating": [("bgg_rating", -1)],
     "rank": [("bgg_rank", 1)],
     "name": [("name_en", 1)],
     "weight": [("bgg_weight", -1)],
     "year": [("year_published", -1)],
 }
+DEFAULT_SORT = "quality"
 
 
 def _format_game(doc: dict, locale: str = "en") -> dict:
@@ -60,6 +62,26 @@ def _set_cache(key: str, data, ttl: int = 300):
         pass
 
 
+# How many vector hits to pull before applying the Mongo filter. Large enough
+# that filtering does not empty the page, small enough to stay one query.
+SEMANTIC_CANDIDATES = 200
+
+
+async def _semantic_page(query: str, filter_query: dict, page: int, per_page: int) -> tuple[list[dict], int]:
+    """Vector hits, narrowed by the same filters and kept in similarity order."""
+    hits = await search_similar(query, top_k=SEMANTIC_CANDIDATES)
+    if not hits:
+        return [], 0
+
+    scores = {hit["bgg_id"]: hit["score"] for hit in hits}
+    scoped = merge_filters(filter_query, {"bgg_id": {"$in": list(scores)}})
+    docs = await mongo_db.board_games.find(scoped).to_list(length=SEMANTIC_CANDIDATES)
+    docs = rerank_semantic(docs, scores)
+
+    skip = (page - 1) * per_page
+    return docs[skip:skip + per_page], len(docs)
+
+
 @router.get("/random")
 async def random_game(locale: str = Query("en")):
     """Random pick, sampled from the showable set so it never lands on a stub."""
@@ -74,8 +96,13 @@ async def random_game(locale: str = Query("en")):
 async def list_games(
     page: int = Query(1, ge=1),
     per_page: int = Query(24, ge=1, le=100),
-    sort: str = Query("rank"),
+    sort: str = Query(DEFAULT_SORT),
     locale: str = Query("en"),
+    include_expansions: bool = Query(False),
+    players: int | None = Query(None, description="Playable with this many players"),
+    best_at_players: bool = Query(False, description="Restrict `players` to counts BGG voted best"),
+    playtime_max: int | None = Query(None, description="Finishes within this many minutes"),
+    playtime_min: int | None = Query(None, description="Runs at least this many minutes"),
     min_players: int | None = None,
     max_players: int | None = None,
     min_playtime: int | None = None,
@@ -87,60 +114,48 @@ async def list_games(
     mechanic: str | None = None,
     q: str | None = None,
 ):
+    """List games.
+
+    `players` / `playtime_max` / `playtime_min` express what a person actually
+    wants ("we are four people and have an hour"). The older `min_players`,
+    `max_players`, `min_playtime` and `max_playtime` parameters are single-sided
+    range-overlap tests kept for compatibility: `max_playtime=30` means "its
+    ceiling is at least 30 minutes", which is the opposite of what most callers
+    assume. Prefer the first three.
+    """
     cache_key = _cache_key("games", page=page, per_page=per_page, sort=sort, locale=locale,
+                           include_expansions=include_expansions,
                            min_players=min_players, max_players=max_players,
                            min_playtime=min_playtime, max_playtime=max_playtime,
                            min_rating=min_rating, max_weight=max_weight, min_weight=min_weight,
+                           players=players, best_at_players=best_at_players,
+                           playtime_max=playtime_max, playtime_min=playtime_min,
                            category=category, mechanic=mechanic, q=q)
     cached = await _cached(cache_key, ttl=120)
     if cached:
         return cached
 
-    filter_query: dict = {}
+    filter_query = merge_filters(
+        build_filters(
+            players=players, best_at_players=best_at_players,
+            playtime_max=playtime_max, playtime_min=playtime_min,
+            min_players=min_players, max_players=max_players,
+            min_playtime=min_playtime, max_playtime=max_playtime,
+            min_rating=min_rating, min_weight=min_weight, max_weight=max_weight,
+        ),
+        await single_tag_filters(category, mechanic),
+    )
 
-    if min_players is not None:
-        filter_query["min_players"] = {"$lte": min_players}
-    if max_players is not None:
-        filter_query["max_players"] = {"$gte": max_players}
-    if min_playtime is not None:
-        filter_query["min_playtime"] = {"$lte": min_playtime}
-    if max_playtime is not None:
-        filter_query["max_playtime"] = {"$gte": max_playtime}
-    if min_rating is not None:
-        filter_query["bgg_rating"] = {"$gte": min_rating}
-    if min_weight is not None or max_weight is not None:
-        w = {}
-        if min_weight is not None:
-            w["$gte"] = min_weight
-        if max_weight is not None:
-            w["$lte"] = max_weight
-        filter_query["bgg_weight"] = w
-    if category:
-        filter_query.update(await tag_filter("categories", category))
-    if mechanic:
-        filter_query.update(await tag_filter("mechanics", mechanic))
+    filter_query = merge_filters(
+        filter_query,
+        quality_gate(locale),
+        None if include_expansions else BASE_GAMES_ONLY,
+        build_name_query(q),
+    )
 
-    name_query = None
-    if q:
-        q_variants = expand_query_variants(q)
-        or_clauses = []
-        for v in q_variants:
-            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
-        name_query = {"$or": or_clauses}
-
-    filter_query = merge_filters(filter_query, quality_gate(locale), name_query)
-
-    sort_key = SORT_MAP.get(sort, [("bgg_rank", 1)])
-    skip = (page - 1) * per_page
-
-    total = await mongo_db.board_games.count_documents(filter_query)
-    cursor = mongo_db.board_games.find(filter_query).sort(sort_key).skip(skip).limit(per_page)
-
-    games = []
-    async for doc in cursor:
-        games.append(_format_game(doc, locale))
+    sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
+    docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
+    games = [_format_game(doc, locale) for doc in docs]
 
     result = {
         "games": games,
@@ -183,6 +198,125 @@ async def list_mechanics():
     return results
 
 
+
+PLAYER_FACET_COUNTS = (1, 2, 3, 4, 5, 6, 8)
+PLAYTIME_BUCKETS = ((0, 30), (31, 60), (61, 120), (121, 100000))
+WEIGHT_BUCKETS = ((1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0))
+FACET_TAG_LIMIT = 60
+
+
+def _bucket_key(prefix: str, low: float, high: float) -> str:
+    """`$facet` keys are field paths, so they cannot contain a dot."""
+    return f"{prefix}_{low}_{high}".replace(".", "_")
+
+
+def _tag_facet(field: str) -> list[dict]:
+    return [
+        {"$unwind": f"${field}"},
+        {"$match": {f"{field}.name": {"$nin": [None, ""]}}},
+        {"$group": {"_id": f"${field}.name", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": FACET_TAG_LIMIT},
+    ]
+
+
+@router.get("/facets")
+async def game_facets(
+    locale: str = Query("en"),
+    q: str | None = None,
+    categories: str | None = None,
+    mechanics: str | None = None,
+    categories_mode: str = Query("any", enum=["any", "all"]),
+    mechanics_mode: str = Query("any", enum=["any", "all"]),
+    exclude_categories: str | None = None,
+    exclude_mechanics: str | None = None,
+    include_expansions: bool = Query(False),
+    players: int | None = None,
+    best_at_players: bool = Query(False),
+    playtime_max: int | None = None,
+    playtime_min: int | None = None,
+    min_weight: float | None = None,
+    max_weight: float | None = None,
+    min_ratings: int | None = None,
+):
+    """How many games each filter option would still leave, given the others.
+
+    Without this a user can assemble a combination that is guaranteed to return
+    nothing, and only finds out after clicking.
+    """
+    cache_key = _cache_key(
+        "facets", locale=locale, q=q, categories=categories, mechanics=mechanics,
+        categories_mode=categories_mode, mechanics_mode=mechanics_mode,
+        exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
+        include_expansions=include_expansions, players=players, best_at_players=best_at_players,
+        playtime_max=playtime_max, playtime_min=playtime_min,
+        min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+    )
+    cached = await _cached(cache_key, ttl=120)
+    if cached:
+        return cached
+
+    filter_query = merge_filters(
+        build_filters(
+            categories=categories, mechanics=mechanics,
+            categories_mode=categories_mode, mechanics_mode=mechanics_mode,
+            exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
+            players=players, best_at_players=best_at_players,
+            playtime_max=playtime_max, playtime_min=playtime_min,
+            min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+        ),
+        quality_gate(locale),
+        None if include_expansions else BASE_GAMES_ONLY,
+        build_name_query(q),
+    )
+
+    facet_stage: dict = {
+        "categories": _tag_facet("categories"),
+        "mechanics": _tag_facet("mechanics"),
+        "total": [{"$count": "count"}],
+    }
+    for count in PLAYER_FACET_COUNTS:
+        facet_stage[f"players_{count}"] = [
+            {"$match": {"min_players": {"$lte": count}, "max_players": {"$gte": count}}},
+            {"$count": "count"},
+        ]
+    for low, high in PLAYTIME_BUCKETS:
+        facet_stage[_bucket_key("playtime", low, high)] = [
+            {"$match": {"max_playtime": {"$gt": 0, "$gte": low, "$lte": high}}},
+            {"$count": "count"},
+        ]
+    for low, high in WEIGHT_BUCKETS:
+        facet_stage[_bucket_key("weight", low, high)] = [
+            {"$match": {"bgg_weight": {"$gte": low, "$lt": high}}},
+            {"$count": "count"},
+        ]
+
+    pipeline = [{"$match": filter_query}, {"$facet": facet_stage}]
+    raw = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
+    buckets = raw[0] if raw else {}
+
+    def count_of(key: str) -> int:
+        entries = buckets.get(key) or []
+        return entries[0]["count"] if entries else 0
+
+    result = {
+        "total": count_of("total"),
+        "categories": [{"name": row["_id"], "count": row["count"]} for row in buckets.get("categories", [])],
+        "mechanics": [{"name": row["_id"], "count": row["count"]} for row in buckets.get("mechanics", [])],
+        "players": [{"value": count, "count": count_of(f"players_{count}")} for count in PLAYER_FACET_COUNTS],
+        "playtime": [
+            {"min": low, "max": high, "count": count_of(_bucket_key("playtime", low, high))}
+            for low, high in PLAYTIME_BUCKETS
+        ],
+        "weight": [
+            {"min": low, "max": high, "count": count_of(_bucket_key("weight", low, high))}
+            for low, high in WEIGHT_BUCKETS
+        ],
+    }
+    _set_cache(cache_key, result, ttl=120)
+    return result
+
+
 @router.get("/search")
 async def search_games(
     q: str | None = None,
@@ -190,115 +324,77 @@ async def search_games(
     locale: str = Query("en"),
     page: int = Query(1, ge=1),
     per_page: int = Query(24, ge=1, le=100),
-    categories: str | None = None,
+    sort: str = Query(DEFAULT_SORT),
+    categories: str | None = Query(None, description="Comma separated category names"),
+    mechanics: str | None = Query(None, description="Comma separated mechanic names"),
+    categories_mode: str = Query("any", enum=["any", "all"]),
+    mechanics_mode: str = Query("any", enum=["any", "all"]),
+    exclude_categories: str | None = None,
+    exclude_mechanics: str | None = None,
+    designers: str | None = None,
+    publishers: str | None = None,
+    include_expansions: bool = Query(False),
+    players: int | None = None,
+    best_at_players: bool = Query(False),
+    playtime_max: int | None = None,
+    playtime_min: int | None = None,
     min_players: int | None = None,
     max_players: int | None = None,
     min_playtime: int | None = None,
     max_playtime: int | None = None,
-    mechanics: str | None = None,
-    designers: str | None = None,
-    publishers: str | None = None,
+    min_weight: float | None = None,
+    max_weight: float | None = None,
     min_ratings: int | None = None,
 ):
-    cache_key = _cache_key("search", q=q, semantic=semantic, locale=locale, page=page,
-                           per_page=per_page, categories=categories,
-                           min_players=min_players, max_players=max_players,
-                           min_playtime=min_playtime, max_playtime=max_playtime,
-                           mechanics=mechanics, designers=designers, publishers=publishers,
-                           min_ratings=min_ratings)
+    """Search with multi-value tag filters.
+
+    `categories=Card Game,Fantasy` matches either by default; `categories_mode=all`
+    demands both. `exclude_categories` removes matches outright, which is the
+    only way to say "anything but wargames".
+    """
+    cache_key = _cache_key(
+        "search", q=q, semantic=semantic, locale=locale, page=page, per_page=per_page, sort=sort,
+        categories=categories, mechanics=mechanics, categories_mode=categories_mode,
+        mechanics_mode=mechanics_mode, exclude_categories=exclude_categories,
+        exclude_mechanics=exclude_mechanics, designers=designers, publishers=publishers,
+        include_expansions=include_expansions, players=players, best_at_players=best_at_players,
+        playtime_max=playtime_max, playtime_min=playtime_min,
+        min_players=min_players, max_players=max_players,
+        min_playtime=min_playtime, max_playtime=max_playtime,
+        min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+    )
     cached = await _cached(cache_key, ttl=120)
     if cached:
         return cached
 
-    filter_query: dict = {}
-    if categories:
-        cat_list = [c.strip() for c in categories.split(",") if c.strip()]
-        if cat_list:
-            filter_query["categories.name"] = {"$in": cat_list}
-    if mechanics:
-        mech_list = [m.strip() for m in mechanics.split(",") if m.strip()]
-        if mech_list:
-            filter_query["mechanics.name"] = {"$in": mech_list}
-    if designers:
-        des_list = [d.strip() for d in designers.split(",") if d.strip()]
-        if des_list:
-            filter_query["designers.name"] = {"$in": des_list}
-    if publishers:
-        pub_list = [p.strip() for p in publishers.split(",") if p.strip()]
-        if pub_list:
-            filter_query["publishers.name"] = {"$in": pub_list}
-    if min_players is not None:
-        filter_query["min_players"] = {"$lte": min_players}
-    if max_players is not None:
-        filter_query["max_players"] = {"$gte": max_players}
-    if min_playtime is not None:
-        filter_query["min_playtime"] = {"$lte": min_playtime}
-    if max_playtime is not None:
-        filter_query["max_playtime"] = {"$gte": max_playtime}
-    if min_ratings is not None:
-        filter_query["users_rated"] = {"$gte": min_ratings}
-    filter_query = merge_filters(filter_query, quality_gate(locale))
+    filter_query = build_filters(
+        categories=categories, mechanics=mechanics,
+        categories_mode=categories_mode, mechanics_mode=mechanics_mode,
+        exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
+        designers=designers, publishers=publishers,
+        players=players, best_at_players=best_at_players,
+        playtime_max=playtime_max, playtime_min=playtime_min,
+        min_players=min_players, max_players=max_players,
+        min_playtime=min_playtime, max_playtime=max_playtime,
+        min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+    )
+    filter_query = merge_filters(
+        filter_query,
+        quality_gate(locale),
+        None if include_expansions else BASE_GAMES_ONLY,
+    )
 
+    sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
     use_semantic = semantic and bool(q) and semantic_enabled()
 
     if use_semantic:
-        try:
-            results = await search_similar(q, top_k=200)
-            bgg_ids = [r.get("bgg_id") or r.get("id") for r in results if r]
-            if bgg_ids:
-                filter_query["bgg_id"] = {"$in": bgg_ids}
-                docs = []
-                async for doc in mongo_db.board_games.find(filter_query):
-                    docs.append(doc)
-                id_order = {gid: i for i, gid in enumerate(bgg_ids)}
-                docs.sort(key=lambda d: id_order.get(d.get("bgg_id"), 9999))
-                total = len(docs)
-                skip = (page - 1) * per_page
-                page_docs = docs[skip:skip + per_page]
-                games = [_format_game(d, locale) for d in page_docs]
-            else:
-                games = []
-                total = 0
-        except Exception:
-            q_variants = expand_query_variants(q)
-            or_clauses = []
-            for v in q_variants:
-                or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
-                or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
-                or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
-            filter_query["$or"] = or_clauses
-            total = await mongo_db.board_games.count_documents(filter_query)
-            skip = (page - 1) * per_page
-            cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).skip(skip).limit(per_page)
-            games = []
-            async for doc in cursor:
-                games.append(_format_game(doc, locale))
-    elif q:
-        q_variants = expand_query_variants(q)
-        or_clauses = []
-        for v in q_variants:
-            or_clauses.append({"name_en": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"name_zh": {"$regex": v, "$options": "i"}})
-            or_clauses.append({"aliases": {"$regex": v, "$options": "i"}})
-        filter_query["$or"] = or_clauses
-        total = await mongo_db.board_games.count_documents(filter_query)
-        skip = (page - 1) * per_page
-        cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).skip(skip).limit(per_page)
-        games = []
-        async for doc in cursor:
-            games.append(_format_game(doc, locale))
+        docs, total = await _semantic_page(q, filter_query, page, per_page)
     else:
-        total = await mongo_db.board_games.count_documents(filter_query)
-        skip = (page - 1) * per_page
-        cursor = mongo_db.board_games.find(filter_query).sort("bgg_rating", -1).skip(skip).limit(per_page)
-        games = []
-        async for doc in cursor:
-            games.append(_format_game(doc, locale))
-
-
+        filter_query = merge_filters(filter_query, build_name_query(q))
+        docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
 
     result = {
-        "games": games,
+        "games": [_format_game(doc, locale) for doc in docs],
         "total": total,
         "page": page,
         "per_page": per_page,
