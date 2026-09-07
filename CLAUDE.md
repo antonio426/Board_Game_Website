@@ -133,8 +133,11 @@ cd backend && .venv/bin/python scripts/eval_search.py --base http://localhost:80
 cd backend && .venv/bin/python scripts/eval_search.py --compare tests/eval_baseline.json
 ```
 
-Phase 0 baseline (`tests/eval_baseline.json`): `recall@10 84.2%, top1 66.7%, precision@10 84.3%,
-4 zero-result cases`. After Phases 1-4: `top1 100%, precision@10 94%`.
+`tests/eval_baseline.json` holds the current run — 37 cases, all passing. For reference, the
+Phase 0 starting point was `recall@10 84.2%, top1 66.7%, precision@10 84.3%, 4 zero-result cases`.
+
+A failing case is usually a real regression, but check coverage first: semantic cases need the
+Qdrant index built (`scripts/index_embeddings.py`), and complexity cases need `bgg_weight`.
 
 ## Defaults worth knowing
 
