@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from fastapi import APIRouter, Query
@@ -220,6 +221,14 @@ def _tag_facet(field: str) -> list[dict]:
     ]
 
 
+async def _run_facet(filter_query: dict, stages: dict) -> dict:
+    pipeline = [{"$match": filter_query}, {"$facet": stages}]
+    rows = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
+    buckets = rows[0] if rows else {}
+    return {key: (value[0]["count"] if value else 0) if key != "categories" and key != "mechanics" else value
+            for key, value in buckets.items()}
+
+
 @router.get("/facets")
 async def game_facets(
     locale: str = Query("en"),
@@ -242,7 +251,10 @@ async def game_facets(
     """How many games each filter option would still leave, given the others.
 
     Without this a user can assemble a combination that is guaranteed to return
-    nothing, and only finds out after clicking.
+    nothing, and only finds out after clicking. Each single-select dimension is
+    counted with its own filter removed, so switching from "2 players" to
+    "4 players" shows the real size of that choice rather than the size of the
+    overlap with the current one.
     """
     cache_key = _cache_key(
         "facets", locale=locale, q=q, categories=categories, mechanics=mechanics,
@@ -256,60 +268,74 @@ async def game_facets(
     if cached:
         return cached
 
-    filter_query = merge_filters(
-        build_filters(
-            categories=categories, mechanics=mechanics,
-            categories_mode=categories_mode, mechanics_mode=mechanics_mode,
-            exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
-            players=players, best_at_players=best_at_players,
-            playtime_max=playtime_max, playtime_min=playtime_min,
-            min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
-        ),
-        quality_gate(locale),
-        None if include_expansions else BASE_GAMES_ONLY,
-        build_name_query(q),
+    shared = dict(
+        categories=categories, mechanics=mechanics,
+        categories_mode=categories_mode, mechanics_mode=mechanics_mode,
+        exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
+        min_ratings=min_ratings,
+    )
+    selection = dict(
+        players=players, best_at_players=best_at_players,
+        playtime_max=playtime_max, playtime_min=playtime_min,
+        min_weight=min_weight, max_weight=max_weight,
     )
 
-    facet_stage: dict = {
+    def scope(**overrides) -> dict:
+        return merge_filters(
+            build_filters(**shared, **{**selection, **overrides}),
+            quality_gate(locale),
+            None if include_expansions else BASE_GAMES_ONLY,
+            build_name_query(q),
+        )
+
+    tag_stages = {
         "categories": _tag_facet("categories"),
         "mechanics": _tag_facet("mechanics"),
         "total": [{"$count": "count"}],
     }
-    for count in PLAYER_FACET_COUNTS:
-        facet_stage[f"players_{count}"] = [
+    player_stages = {
+        f"players_{count}": [
             {"$match": {"min_players": {"$lte": count}, "max_players": {"$gte": count}}},
             {"$count": "count"},
         ]
-    for low, high in PLAYTIME_BUCKETS:
-        facet_stage[_bucket_key("playtime", low, high)] = [
+        for count in PLAYER_FACET_COUNTS
+    }
+    playtime_stages = {
+        _bucket_key("playtime", low, high): [
             {"$match": {"max_playtime": {"$gt": 0, "$gte": low, "$lte": high}}},
             {"$count": "count"},
         ]
-    for low, high in WEIGHT_BUCKETS:
-        facet_stage[_bucket_key("weight", low, high)] = [
+        for low, high in PLAYTIME_BUCKETS
+    }
+    weight_stages = {
+        _bucket_key("weight", low, high): [
             {"$match": {"bgg_weight": {"$gte": low, "$lt": high}}},
             {"$count": "count"},
         ]
+        for low, high in WEIGHT_BUCKETS
+    }
 
-    pipeline = [{"$match": filter_query}, {"$facet": facet_stage}]
-    raw = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
-    buckets = raw[0] if raw else {}
-
-    def count_of(key: str) -> int:
-        entries = buckets.get(key) or []
-        return entries[0]["count"] if entries else 0
+    tags, player_counts, playtime_counts, weight_counts = await asyncio.gather(
+        _run_facet(scope(), tag_stages),
+        _run_facet(scope(players=None, best_at_players=False), player_stages),
+        _run_facet(scope(playtime_max=None, playtime_min=None), playtime_stages),
+        _run_facet(scope(min_weight=None, max_weight=None), weight_stages),
+    )
 
     result = {
-        "total": count_of("total"),
-        "categories": [{"name": row["_id"], "count": row["count"]} for row in buckets.get("categories", [])],
-        "mechanics": [{"name": row["_id"], "count": row["count"]} for row in buckets.get("mechanics", [])],
-        "players": [{"value": count, "count": count_of(f"players_{count}")} for count in PLAYER_FACET_COUNTS],
+        "total": tags.get("total", 0),
+        "categories": [{"name": row["_id"], "count": row["count"]} for row in tags.get("categories") or []],
+        "mechanics": [{"name": row["_id"], "count": row["count"]} for row in tags.get("mechanics") or []],
+        "players": [
+            {"value": count, "count": player_counts.get(f"players_{count}", 0)}
+            for count in PLAYER_FACET_COUNTS
+        ],
         "playtime": [
-            {"min": low, "max": high, "count": count_of(_bucket_key("playtime", low, high))}
+            {"min": low, "max": high, "count": playtime_counts.get(_bucket_key("playtime", low, high), 0)}
             for low, high in PLAYTIME_BUCKETS
         ],
         "weight": [
-            {"min": low, "max": high, "count": count_of(_bucket_key("weight", low, high))}
+            {"min": low, "max": high, "count": weight_counts.get(_bucket_key("weight", low, high), 0)}
             for low, high in WEIGHT_BUCKETS
         ],
     }
