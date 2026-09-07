@@ -1,41 +1,41 @@
 {
   "summary": {
-    "cases": 33,
-    "recall": 0.8421052631578947,
-    "top1": 0.6666666666666666,
-    "precision": 0.8428571428571429,
-    "zero_results": 4
+    "cases": 37,
+    "recall": 1.0,
+    "top1": 1.0,
+    "precision": 1.0,
+    "zero_results": 0
   },
   "results": [
     {
       "id": "name-en-catan",
       "returned": 10,
       "top_ids": [
-        926,
-        325,
-        13
+        13,
+        282853,
+        161527
       ],
       "recall": 1.0,
-      "top1": 0.0
+      "top1": 1.0
     },
     {
       "id": "name-en-dominion",
-      "returned": 10,
+      "returned": 9,
       "top_ids": [
-        40834,
         36218,
+        64777,
         209418
       ],
       "recall": 1.0,
-      "top1": 0.0
+      "top1": 1.0
     },
     {
       "id": "name-en-agricola",
-      "returned": 9,
+      "returned": 8,
       "top_ids": [
         31260,
         200680,
-        43018
+        119890
       ],
       "recall": 1.0,
       "top1": 1.0
@@ -57,7 +57,7 @@
       "top_ids": [
         230802,
         204052,
-        287954
+        363247
       ],
       "recall": 1.0,
       "top1": 1.0
@@ -68,7 +68,7 @@
       "top_ids": [
         237182,
         202245,
-        283838
+        41511
       ],
       "recall": 1.0
     },
@@ -78,7 +78,7 @@
       "top_ids": [
         174430,
         291457,
-        393672
+        390478
       ],
       "recall": 1.0,
       "top1": 1.0
@@ -98,12 +98,12 @@
       "id": "name-en-partial",
       "returned": 10,
       "top_ids": [
+        9209,
         390092,
-        24439,
-        14996
+        31627
       ],
       "recall": 1.0,
-      "top1": 0.0
+      "top1": 1.0
     },
     {
       "id": "name-en-multiword",
@@ -117,11 +117,11 @@
     },
     {
       "id": "name-zh-carcassonne",
-      "returned": 9,
+      "returned": 5,
       "top_ids": [
-        2993,
-        5405,
-        822
+        822,
+        131014,
+        358124
       ],
       "recall": 1.0
     },
@@ -139,7 +139,7 @@
       "top_ids": [
         230802,
         204052,
-        287954
+        363247
       ],
       "recall": 1.0
     },
@@ -155,19 +155,19 @@
       "id": "alias-zh-splendor",
       "returned": 4,
       "top_ids": [
-        364073,
         148228,
-        293296
+        364073,
+        406291
       ],
       "recall": 1.0
     },
     {
       "id": "alias-simplified-input",
-      "returned": 9,
+      "returned": 5,
       "top_ids": [
-        2993,
-        5405,
-        822
+        822,
+        131014,
+        358124
       ],
       "recall": 1.0
     },
@@ -175,39 +175,39 @@
       "id": "filter-two-player",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        397598,
+        295770,
+        356080
       ],
-      "precision": 0.9
+      "precision": 1.0
     },
     {
       "id": "filter-four-player",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        397598,
+        295770,
+        356080
       ],
-      "precision": 0.9
+      "precision": 1.0
     },
     {
       "id": "filter-short-games",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        421006,
+        373106,
+        173346
       ],
-      "precision": 0.0
+      "precision": 1.0
     },
     {
       "id": "filter-category-card-game",
       "returned": 10,
       "top_ids": [
+        251661,
         342942,
-        338960,
-        182028
+        338960
       ],
       "precision": 1.0
     },
@@ -215,9 +215,9 @@
       "id": "filter-category-lowercase",
       "returned": 10,
       "top_ids": [
+        251661,
         342942,
-        338960,
-        182028
+        338960
       ],
       "precision": 1.0
     },
@@ -225,9 +225,9 @@
       "id": "filter-mechanic-hand-management",
       "returned": 10,
       "top_ids": [
+        295770,
         224517,
-        342942,
-        161936
+        251661
       ],
       "precision": 1.0
     },
@@ -237,7 +237,7 @@
       "top_ids": [
         397598,
         316554,
-        177736
+        284378
       ],
       "precision": 1.0
     },
@@ -245,9 +245,9 @@
       "id": "filter-min-rating",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        397598,
+        295770,
+        224517
       ],
       "precision": 1.0
     },
@@ -255,9 +255,9 @@
       "id": "filter-min-ratings-popular",
       "returned": 10,
       "top_ids": [
-        224517,
-        342942,
-        161936
+        397598,
+        295770,
+        356080
       ],
       "precision": 1.0
     },
@@ -265,9 +265,9 @@
       "id": "filter-categories-multi",
       "returned": 10,
       "top_ids": [
-        342942,
-        174430,
-        115746
+        295770,
+        356080,
+        251661
       ],
       "precision": 1.0
     },
@@ -275,9 +275,9 @@
       "id": "quality-list-default",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        397598,
+        295770,
+        356080
       ],
       "precision": 1.0
     },
@@ -285,9 +285,9 @@
       "id": "quality-list-zh",
       "returned": 10,
       "top_ids": [
-        224517,
-        129624,
-        342942
+        397598,
+        295770,
+        356080
       ],
       "precision": 1.0
     },
@@ -295,39 +295,91 @@
       "id": "quality-search-default",
       "returned": 10,
       "top_ids": [
-        17701,
-        129624,
-        224517
+        397598,
+        295770,
+        356080
       ],
       "precision": 1.0
     },
     {
       "id": "semantic-deck-building",
-      "returned": 0,
-      "top_ids": [],
-      "precision": 0.0,
-      "zero_results": true
+      "returned": 10,
+      "top_ids": [
+        440540,
+        140934,
+        296512
+      ],
+      "precision": 1.0
     },
     {
       "id": "semantic-cooperative-disease",
-      "returned": 0,
-      "top_ids": [],
-      "recall": 0.0,
-      "zero_results": true
+      "returned": 10,
+      "top_ids": [
+        173805,
+        440540,
+        150658
+      ],
+      "recall": 1.0
     },
     {
       "id": "semantic-bird-engine",
-      "returned": 0,
-      "top_ids": [],
-      "recall": 0.0,
-      "zero_results": true
+      "returned": 10,
+      "top_ids": [
+        266192,
+        414317,
+        246200
+      ],
+      "recall": 1.0
     },
     {
       "id": "semantic-two-player-duel",
-      "returned": 0,
-      "top_ids": [],
-      "recall": 0.0,
-      "zero_results": true
+      "returned": 10,
+      "top_ids": [
+        173346,
+        298572,
+        129459
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "filter-best-at-two",
+      "returned": 10,
+      "top_ids": [
+        356080,
+        251661,
+        342942
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-exclude-wargames",
+      "returned": 10,
+      "top_ids": [
+        397598,
+        295770,
+        356080
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-categories-all-mode",
+      "returned": 10,
+      "top_ids": [
+        251661,
+        338960,
+        359609
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "semantic-worker-placement-farm",
+      "returned": 10,
+      "top_ids": [
+        31260,
+        102794,
+        103185
+      ],
+      "recall": 1.0
     }
   ]
 }
