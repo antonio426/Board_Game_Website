@@ -118,7 +118,9 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
   `BASE_GAMES_ONLY` excludes expansions, which is the default everywhere.
 - `app/core/search.py` owns name matching and ranking: `build_name_query` (CJK variants across
   `name_en`/`name_zh`/`aliases`), `relevance` (exact 100 > prefix 60 > word 40 > substring 20,
-  minus 25 for an expansion, plus `quality_score`), `paged_search` and `rerank_semantic`.
+  minus 25 for an expansion, plus `quality_score`), `paged_search`, and `rerank_semantic`, which
+  blends cosine similarity 0.65 / quality 0.20 / log-scaled audience size 0.15 — without the last
+  two, short documents that echo the query outrank the games people mean.
 - `app/recommenders/diversity.py::diversify` re-ranks a scored list with MMR (λ 0.7) and caps two
   per series and two per designer, so "similar to Catan" stops being five Catan editions.
 

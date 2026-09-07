@@ -6,6 +6,8 @@ and the base game third: every match was equal, and the tie was broken by
 rating alone. Matching now carries a score — exact name beats prefix beats
 substring — and expansions are pushed below the game they extend.
 """
+import math
+
 from app.core.cjk import expand_query_variants
 
 # Match tiers. The gaps are wide enough that quality can never outrank a
@@ -77,19 +79,40 @@ def rank_by_relevance(docs: list[dict], query: str) -> list[dict]:
     return sorted(docs, key=lambda doc: relevance(doc, query), reverse=True)
 
 
-# Vector similarity alone is title-biased: "birds engine builder" retrieved
-# every game with "Birds" in its name ahead of Wingspan. Blending in how well
-# regarded a game is restores the obvious answer without flattening the ranking.
-SEMANTIC_QUALITY_WEIGHT = 0.25
+# Cosine similarity alone rewards short documents whose entire text repeats the
+# query: over the full 43k index, "cooperative game about curing diseases"
+# returned Together, Infection and Joint Efforts while Pandemic fell out of the
+# top ten, and "deck building card game" led with a game literally called Deck
+# Building: The Deck Building Game. Two priors fix that. Quality separates good
+# from bad but is compressed into a 6-8 band, so it cannot outweigh a strong
+# match on its own; the audience size behind a game spans five orders of
+# magnitude, which is exactly the spread needed to break these ties.
+SEMANTIC_SIMILARITY_WEIGHT = 0.65
+SEMANTIC_QUALITY_WEIGHT = 0.20
+SEMANTIC_POPULARITY_WEIGHT = 0.15
+
 MAX_QUALITY_SCORE = 10.0
+# log10 of the most-rated game on the site, near enough: 10^5 = 100,000 ratings.
+POPULARITY_DECADES = 5.0
+
+
+def _popularity(doc: dict) -> float:
+    users_rated = doc.get("users_rated") or 0
+    if users_rated <= 0:
+        return 0.0
+    return min(math.log10(1 + users_rated) / POPULARITY_DECADES, 1.0)
 
 
 def rerank_semantic(docs: list[dict], scores: dict[int, float]) -> list[dict]:
-    """Order vector hits by similarity blended with quality."""
+    """Order vector hits by similarity, tempered by quality and audience size."""
     def blended(doc: dict) -> float:
         similarity = scores.get(doc.get("bgg_id"), 0.0)
         quality = (doc.get("quality_score") or 0) / MAX_QUALITY_SCORE
-        return (1 - SEMANTIC_QUALITY_WEIGHT) * similarity + SEMANTIC_QUALITY_WEIGHT * quality
+        return (
+            SEMANTIC_SIMILARITY_WEIGHT * similarity
+            + SEMANTIC_QUALITY_WEIGHT * quality
+            + SEMANTIC_POPULARITY_WEIGHT * _popularity(doc)
+        )
 
     return sorted(docs, key=blended, reverse=True)
 

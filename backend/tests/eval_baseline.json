@@ -117,7 +117,7 @@
     },
     {
       "id": "name-zh-carcassonne",
-      "returned": 5,
+      "returned": 9,
       "top_ids": [
         822,
         131014,
@@ -127,15 +127,17 @@
     },
     {
       "id": "name-zh-wingspan",
-      "returned": 1,
+      "returned": 3,
       "top_ids": [
-        266192
+        266192,
+        366161,
+        473508
       ],
       "recall": 1.0
     },
     {
       "id": "name-zh-azul",
-      "returned": 6,
+      "returned": 7,
       "top_ids": [
         230802,
         204052,
@@ -163,7 +165,7 @@
     },
     {
       "id": "alias-simplified-input",
-      "returned": 5,
+      "returned": 9,
       "top_ids": [
         822,
         131014,
@@ -305,9 +307,9 @@
       "id": "semantic-deck-building",
       "returned": 10,
       "top_ids": [
-        440540,
         140934,
-        296512
+        141572,
+        175846
       ],
       "precision": 1.0
     },
@@ -315,9 +317,9 @@
       "id": "semantic-cooperative-disease",
       "returned": 10,
       "top_ids": [
-        173805,
-        440540,
-        150658
+        30549,
+        150658,
+        440540
       ],
       "recall": 1.0
     },
@@ -336,8 +338,8 @@
       "returned": 10,
       "top_ids": [
         173346,
-        298572,
-        129459
+        364073,
+        447243
       ],
       "recall": 1.0
     },
@@ -377,7 +379,7 @@
       "top_ids": [
         31260,
         102794,
-        103185
+        183394
       ],
       "recall": 1.0
     }
