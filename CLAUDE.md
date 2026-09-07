@@ -90,8 +90,10 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
   rank is meaningful only near the top.
 - Some `categories` / `mechanics` array entries have a null `name` (Splendor's categories render
   as `,,`). The tag list endpoints filter these out; the underlying docs still carry them.
-- Many `name_zh` values are Japanese, not Chinese (Catan = カタン, Ticket to Ride = 乗車券), so
-  "has `name_zh`" is not the same as "has a Chinese name".
+- `name_zh` used to hold Japanese titles on 641 games (Catan = カタン, Ticket to Ride = 乗車券).
+  `scripts/clean_zh_names.py` moved those into `aliases` and cleared the field, so zh falls back
+  to the English name instead of showing Japanese. Re-run it after any enricher pass — the
+  enrichers still accept any CJK alternate BGG offers.
 - `description_zh` exists as an empty string on every doc — presence checks must test `$ne: ""`,
   not `$exists`.
 - Fixed in Phase 0, kept here as history: the code used to query a `num_ratings` field that does

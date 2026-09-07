@@ -329,7 +329,7 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
 |---|---|---|
 | P1.1 | BGG XML API 已改為需認證（401）。改用 `api.geekdo.com/api/dynamicinfo`，一次拿到 weight、最佳人數投票、語言需求、subdomain 排名 | 背景跑，resumable |
 | P1.2 | `_text_to_vector` 的 SHA-256 假向量換成 fastembed。先試多語 paraphrase 模型，檢索品質差；改用 `BAAI/bge-small-en-v1.5`（384 維，不用改 collection） | 重建索引中 |
-| P1.3 | 中文覆蓋率 | **未做**（見下方「未完成」） |
+| P1.3 | 中文覆蓋率：`scripts/clean_zh_names.py` 把 641 筆日文名稱移進 `aliases` 並清空 `name_zh`（カタン、乗車券 等），zh 介面改回退到英文而不是顯示日文；15 筆從 alias 提升為真正的中文名。翻譯補齊仍待決定 | 部分完成 |
 | P2.1 | `quality_score` Bayesian（m=1000），預設排序改成 `quality` | ✅ |
 | P2.2 | `app/core/search.py`：完全相符 100 > 前綴 60 > 詞邊界 40 > 子字串 20，擴充 -25，加 `quality_score` 當 tie-break | ✅ |
 | P2.3 | `is_expansion`：優先用 geekitems 的真實 subtype；沒有的用「BGG 沒給任何排名」推論（實測 43/43 抓到，9 個誤判 / 3,296） | ✅（隨背景任務補齊） |
