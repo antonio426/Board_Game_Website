@@ -8,11 +8,13 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1 import actions, auth, chat, crawl, games, health, recommendations, translate
 from app.core.config import settings
 from app.core.indexes import ensure_indexes
+from app.core.vocab import ensure_loaded as load_tag_vocabulary
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_indexes()
+    await load_tag_vocabulary()
     yield
 
 

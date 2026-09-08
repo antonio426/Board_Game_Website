@@ -93,8 +93,10 @@ export default function ExplorePage() {
     if (filter.max_playtime) params.set("max_playtime", filter.max_playtime);
     if (filter.min_weight) params.set("min_weight", filter.min_weight);
     if (filter.max_weight) params.set("max_weight", filter.max_weight);
-    if (filter.category) params.set("category", filter.category);
-    if (filter.mechanic) params.set("mechanic", filter.mechanic);
+    // `/games/search` takes the plural, comma-separated form; the singular
+    // parameters were silently dropped, so both dropdowns did nothing.
+    if (filter.category) params.set("categories", filter.category);
+    if (filter.mechanic) params.set("mechanics", filter.mechanic);
 
     try {
       // Both modes hit the same endpoint; `semantic=true` swaps lexical name

@@ -50,6 +50,9 @@ const LIST_KEYS = ["categories", "mechanics", "excludeCategories", "excludeMecha
 
 export function fromSearchParams(params: URLSearchParams): GameFilterState {
   const list = (key: string) => (params.get(key) || "").split(",").filter(Boolean);
+  // `category`/`mechanic` are the older link format, still out there in shared
+  // URLs; they were read by nothing, so every tag-page link landed unfiltered.
+  const tags = (short: string, legacy: string) => (list(short).length ? list(short) : list(legacy));
   return {
     q: params.get("q") || "",
     sort: params.get("sort") || DEFAULT_FILTERS.sort,
@@ -58,8 +61,8 @@ export function fromSearchParams(params: URLSearchParams): GameFilterState {
     bestAtPlayers: params.get("best") === "1",
     playtimeMax: params.get("time") || "",
     weightBand: params.get("weight") || "",
-    categories: list("cat"),
-    mechanics: list("mech"),
+    categories: tags("cat", "category"),
+    mechanics: tags("mech", "mechanic"),
     excludeCategories: list("xcat"),
     excludeMechanics: list("xmech"),
     includeExpansions: params.get("expansions") === "1",

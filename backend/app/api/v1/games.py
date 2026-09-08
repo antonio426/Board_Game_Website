@@ -8,6 +8,7 @@ from app.core.database import mongo_db, redis_client
 from app.core.filters import BASE_GAMES_ONLY, build_filters, single_tag_filters
 from app.core.quality import merge_filters, quality_gate
 from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
+from app.core import vocab
 from app.recommenders.embedding import search_similar, semantic_enabled
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,14 @@ SORT_MAP = {
 DEFAULT_SORT = "quality"
 
 
-def _format_game(doc: dict, locale: str = "en") -> dict:
-    """Locale-aware game formatting: zh → name_zh priority, local images."""
+def _format_game(doc: dict, locale: str = "en", translations: dict | None = None) -> dict:
+    """Locale-aware game formatting: zh → name_zh priority, local images.
+
+    `translations` is the tag vocabulary, hoisted by `_format_games` so a page
+    of results loads it once rather than per game.
+    """
     doc["id"] = str(doc.pop("_id", ""))
+    vocab.normalize_tags_with(doc, translations or {})
 
     if locale and locale.startswith("zh"):
         display_name = doc.get("name_zh") or doc.get("name_en") or ""
@@ -42,6 +48,15 @@ def _format_game(doc: dict, locale: str = "en") -> dict:
         doc["local_image"] = f"/images/{bgg_id}.jpg"
 
     return doc
+
+
+async def _tag_translations() -> dict[str, dict[str, str]]:
+    return {field: await vocab.zh_map(field) for field in vocab.TAG_COLLECTIONS}
+
+
+async def _format_games(docs: list[dict], locale: str = "en") -> list[dict]:
+    translations = await _tag_translations()
+    return [_format_game(doc, locale, translations) for doc in docs]
 
 
 def _cache_key(prefix: str, **kwargs) -> str:
@@ -90,7 +105,7 @@ async def random_game(locale: str = Query("en")):
     docs = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
     if not docs:
         return {"error": "no_games"}
-    return _format_game(docs[0], locale)
+    return _format_game(docs[0], locale, await _tag_translations())
 
 
 @router.get("")
@@ -156,7 +171,7 @@ async def list_games(
 
     sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
     docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
-    games = [_format_game(doc, locale) for doc in docs]
+    games = await _format_games(docs, locale)
 
     result = {
         "games": games,
@@ -170,45 +185,67 @@ async def list_games(
 
 
 @router.get("/categories")
-async def list_categories():
-    pipeline = [
-        {"$unwind": "$categories"},
-        {"$match": {"categories.name": {"$nin": [None, ""]}}},
-        {"$group": {"_id": "$categories.name", "name_zh": {"$first": "$categories.name_zh"}, "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 100},
-    ]
-    results = []
-    async for doc in mongo_db.board_games.aggregate(pipeline):
-        results.append({"name": doc["_id"], "name_zh": doc.get("name_zh") or doc["_id"], "count": doc["count"]})
-    return results
+async def list_categories(locale: str = Query("en")):
+    return await _tag_vocabulary("categories", locale)
 
 
 @router.get("/mechanics")
-async def list_mechanics():
+async def list_mechanics(locale: str = Query("en")):
+    return await _tag_vocabulary("mechanics", locale)
+
+
+async def _tag_vocabulary(field: str, locale: str) -> list[dict]:
+    """Every term with how many showable games carry it.
+
+    Counting runs against the same quality gate the list uses, so the number
+    beside a chip is the number of games clicking it returns. Terms nobody uses
+    still appear with a count of zero — the chip search box and the tags page
+    both want the complete vocabulary, and the old `$limit: 100` was hiding 96
+    of the 196 mechanics outright.
+    """
+    cache_key = _cache_key("vocab", field=field, locale=locale)
+    cached = await _cached(cache_key, ttl=600)
+    if cached:
+        return cached
+
+    path = vocab.TAG_PATHS[field]
     pipeline = [
-        {"$unwind": "$mechanics"},
-        {"$match": {"mechanics.name": {"$nin": [None, ""]}}},
-        {"$group": {"_id": "$mechanics.name", "name_zh": {"$first": "$mechanics.name_zh"}, "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 100},
+        {"$match": quality_gate(locale)},
+        {"$unwind": f"${field}"},
+        {"$match": {path: {"$nin": [None, ""]}}},
+        {"$group": {"_id": f"${path}", "count": {"$sum": 1}}},
     ]
-    results = []
-    async for doc in mongo_db.board_games.aggregate(pipeline):
-        results.append({"name": doc["_id"], "name_zh": doc.get("name_zh") or doc["_id"], "count": doc["count"]})
+    counts = {row["_id"]: row["count"] async for row in mongo_db.board_games.aggregate(pipeline)}
+
+    terms = await vocab.vocabulary(field)
+    known = {term["name"] for term in terms}
+    results = [
+        {"name": term["name"], "name_zh": term["name_zh"], "count": counts.get(term["name"], 0)}
+        for term in terms
+    ]
+    # A term the games use but the mapping has never heard of still has to be
+    # filterable; it just goes out untranslated.
+    results.extend(
+        {"name": name, "name_zh": name, "count": count}
+        for name, count in counts.items()
+        if name not in known
+    )
+    results.sort(key=lambda row: row["count"], reverse=True)
+
+    _set_cache(cache_key, results, ttl=600)
     return results
 
 
-
+# Chip options, defined once and shared with the facet counts below.
 PLAYER_FACET_COUNTS = (1, 2, 3, 4, 5, 6, 8)
-PLAYTIME_BUCKETS = ((0, 30), (31, 60), (61, 120), (121, 100000))
-WEIGHT_BUCKETS = ((1.0, 2.0), (2.0, 3.0), (3.0, 4.0), (4.0, 5.0))
-FACET_TAG_LIMIT = 60
+# Cumulative "finishes within N minutes", matching PLAYTIME_OPTIONS on the client.
+PLAYTIME_EDGES = (30, 60, 120, 240)
+# (band, min_weight, max_weight) on BGG's 1-5 complexity scale.
+WEIGHT_BANDS = (("light", None, 2.0), ("medium", 2.0, 3.5), ("heavy", 3.5, None))
 
-
-def _bucket_key(prefix: str, low: float, high: float) -> str:
-    """`$facet` keys are field paths, so they cannot contain a dot."""
-    return f"{prefix}_{low}_{high}".replace(".", "_")
+# High enough that no vocabulary term (85 + 196) falls out of the facet map,
+# which is what made chips outside the top 60 render a misleading 0.
+FACET_TAG_LIMIT = 200
 
 
 def _tag_facet(field: str) -> list[dict]:
@@ -221,12 +258,26 @@ def _tag_facet(field: str) -> list[dict]:
     ]
 
 
+def _option_stage(**criteria) -> list[dict]:
+    """Count the games one chip would leave.
+
+    The stage is built by `build_filters`, the same function the list endpoint
+    uses, so the number on a chip cannot drift from the results behind it. The
+    hand-written version of these stages is why the 240-minute chip never showed
+    a count and the complexity bands silently dropped everything between 3 and 4.
+    """
+    return [{"$match": build_filters(**criteria)}, {"$count": "count"}]
+
+
 async def _run_facet(filter_query: dict, stages: dict) -> dict:
     pipeline = [{"$match": filter_query}, {"$facet": stages}]
     rows = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
-    buckets = rows[0] if rows else {}
-    return {key: (value[0]["count"] if value else 0) if key != "categories" and key != "mechanics" else value
-            for key, value in buckets.items()}
+    return rows[0] if rows else {}
+
+
+def _count_of(buckets: dict, key: str) -> int:
+    entries = buckets.get(key) or []
+    return entries[0]["count"] if entries else 0
 
 
 @router.get("/facets")
@@ -293,26 +344,11 @@ async def game_facets(
         "mechanics": _tag_facet("mechanics"),
         "total": [{"$count": "count"}],
     }
-    player_stages = {
-        f"players_{count}": [
-            {"$match": {"min_players": {"$lte": count}, "max_players": {"$gte": count}}},
-            {"$count": "count"},
-        ]
-        for count in PLAYER_FACET_COUNTS
-    }
-    playtime_stages = {
-        _bucket_key("playtime", low, high): [
-            {"$match": {"max_playtime": {"$gt": 0, "$gte": low, "$lte": high}}},
-            {"$count": "count"},
-        ]
-        for low, high in PLAYTIME_BUCKETS
-    }
+    player_stages = {f"players_{count}": _option_stage(players=count) for count in PLAYER_FACET_COUNTS}
+    playtime_stages = {f"playtime_{edge}": _option_stage(playtime_max=edge) for edge in PLAYTIME_EDGES}
     weight_stages = {
-        _bucket_key("weight", low, high): [
-            {"$match": {"bgg_weight": {"$gte": low, "$lt": high}}},
-            {"$count": "count"},
-        ]
-        for low, high in WEIGHT_BUCKETS
+        f"weight_{band}": _option_stage(min_weight=low, max_weight=high)
+        for band, low, high in WEIGHT_BANDS
     }
 
     tags, player_counts, playtime_counts, weight_counts = await asyncio.gather(
@@ -322,21 +358,30 @@ async def game_facets(
         _run_facet(scope(min_weight=None, max_weight=None), weight_stages),
     )
 
+    translations = await _tag_translations()
+
+    def tag_rows(field: str) -> list[dict]:
+        labels = translations.get(field, {})
+        return [
+            {"name": row["_id"], "name_zh": labels.get(row["_id"], row["_id"]), "count": row["count"]}
+            for row in tags.get(field) or []
+        ]
+
     result = {
-        "total": tags.get("total", 0),
-        "categories": [{"name": row["_id"], "count": row["count"]} for row in tags.get("categories") or []],
-        "mechanics": [{"name": row["_id"], "count": row["count"]} for row in tags.get("mechanics") or []],
+        "total": _count_of(tags, "total"),
+        "categories": tag_rows("categories"),
+        "mechanics": tag_rows("mechanics"),
         "players": [
-            {"value": count, "count": player_counts.get(f"players_{count}", 0)}
+            {"value": count, "count": _count_of(player_counts, f"players_{count}")}
             for count in PLAYER_FACET_COUNTS
         ],
         "playtime": [
-            {"min": low, "max": high, "count": playtime_counts.get(_bucket_key("playtime", low, high), 0)}
-            for low, high in PLAYTIME_BUCKETS
+            {"max": edge, "count": _count_of(playtime_counts, f"playtime_{edge}")}
+            for edge in PLAYTIME_EDGES
         ],
         "weight": [
-            {"min": low, "max": high, "count": weight_counts.get(_bucket_key("weight", low, high), 0)}
-            for low, high in WEIGHT_BUCKETS
+            {"band": band, "min": low, "max": high, "count": _count_of(weight_counts, f"weight_{band}")}
+            for band, low, high in WEIGHT_BANDS
         ],
     }
     _set_cache(cache_key, result, ttl=120)
@@ -420,7 +465,7 @@ async def search_games(
         docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
 
     result = {
-        "games": [_format_game(doc, locale) for doc in docs],
+        "games": await _format_games(docs, locale),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -442,7 +487,7 @@ async def get_game(bgg_id: int, locale: str = Query("en")):
     if not game:
         return {"error": "not_found"}
 
-    _format_game(game, locale)
+    _format_game(game, locale, await _tag_translations())
 
     _set_cache(cache_key, game, ttl=300)
     return game

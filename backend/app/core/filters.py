@@ -99,7 +99,9 @@ def build_filters(
         overlap["max_playtime"] = {"$gte": max_playtime}
 
     if min_weight is not None or max_weight is not None:
-        weight: dict = {}
+        # An unrated complexity is stored as 0. Without the floor, every game
+        # BGG has not weighted yet counts as "light".
+        weight: dict = {"$gt": 0}
         if min_weight is not None:
             weight["$gte"] = min_weight
         if max_weight is not None:

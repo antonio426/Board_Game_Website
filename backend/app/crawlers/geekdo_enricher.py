@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from app.core.config import settings
 from app.core.cjk import to_traditional
+from app.core import vocab
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,34 @@ def _pick_link_names(links: dict, link_type: str) -> list[str]:
     return out
 
 
-def _parse_game_payload(payload: dict, bgg_id: int) -> dict:
+def _pick_link_tags(links: dict, link_type: str, translations: dict[str, str]) -> list[dict]:
+    """Category/mechanic links in the shape the rest of the app expects.
+
+    This used to return bare strings, which regressed every enriched document to
+    the pre-migration array shape — invisible to tag filtering and rendered as
+    empty chips. An unknown term gets `name_zh: None` and a log line, never the
+    English name: writing English into the translation field is what corrupted
+    24 tags in the first place, and the fix is to add a row to `bgg_mechanics`.
+    """
+    tags = []
+    for entry in links.get(link_type, []) or []:
+        name = entry if isinstance(entry, str) else (entry.get("name") if isinstance(entry, dict) else None)
+        if not name:
+            continue
+        tag_id = 0
+        if isinstance(entry, dict):
+            try:
+                tag_id = int(entry.get("objectid") or 0)
+            except (TypeError, ValueError):
+                tag_id = 0
+        name_zh = translations.get(name)
+        if name_zh is None:
+            logger.info("no Chinese name for %s %r — add it to the mapping collection", link_type, name)
+        tags.append({"id": tag_id, "name": name, "name_zh": name_zh})
+    return tags
+
+
+def _parse_game_payload(payload: dict, bgg_id: int, translations: dict[str, dict[str, str]] | None = None) -> dict:
     item = payload.get("item") or {}
     if not item:
         return {}
@@ -104,11 +132,9 @@ def _parse_game_payload(payload: dict, bgg_id: int) -> dict:
     if thumb_url:
         update["thumbnail"] = thumb_url
 
-    categories = _pick_link_names(links, "boardgamecategory")
-    update["categories"] = categories
-
-    mechanics = _pick_link_names(links, "boardgamemechanic")
-    update["mechanics"] = mechanics
+    translations = translations or {}
+    update["categories"] = _pick_link_tags(links, "boardgamecategory", translations.get("categories", {}))
+    update["mechanics"] = _pick_link_tags(links, "boardgamemechanic", translations.get("mechanics", {}))
 
     designers = _pick_link_names(links, "boardgamedesigner")
     update["designers"] = designers
@@ -124,6 +150,10 @@ def _parse_game_payload(payload: dict, bgg_id: int) -> dict:
     update["bgg_id"] = bgg_id
 
     return update
+
+
+async def _tag_translations() -> dict[str, dict[str, str]]:
+    return {field: await vocab.zh_map(field) for field in vocab.TAG_COLLECTIONS}
 
 
 async def _fetch_one(client: httpx.AsyncClient, bgg_id: int) -> tuple[int, Optional[dict]]:
@@ -148,7 +178,7 @@ async def _process_one(sem, client, db, bgg_id: int, stats: dict) -> None:
                 stats["failed"] += 1
                 return
 
-            update = _parse_game_payload(payload, _id)
+            update = _parse_game_payload(payload, _id, await _tag_translations())
             update.pop("bgg_id", None)
             update["last_enriched_at"] = datetime.now(timezone.utc)
 

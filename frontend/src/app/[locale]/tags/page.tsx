@@ -50,11 +50,11 @@ export default function TagsPage() {
         const featured = [
           ...categories.slice(0, 8).map((tag) => ({
             tag,
-            href: { pathname: "/games", query: { category: tag.name } },
+            href: { pathname: "/games", query: { cat: tag.name } },
           })),
           ...mechanics.slice(0, 8).map((tag) => ({
             tag,
-            href: { pathname: "/games", query: { mechanic: tag.name } },
+            href: { pathname: "/games", query: { mech: tag.name } },
           })),
         ];
         return (
@@ -111,7 +111,7 @@ export default function TagsPage() {
             {categories.map((c) => (
               <Link
                 key={c.name}
-                href={{ pathname: "/games", query: { category: c.name } }}
+                href={{ pathname: "/games", query: { cat: c.name } }}
                 className="group inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors"
                 style={{
                   background: "var(--color-surface)",
@@ -154,7 +154,7 @@ export default function TagsPage() {
             {mechanics.map((m) => (
               <Link
                 key={m.name}
-                href={{ pathname: "/games", query: { mechanic: m.name } }}
+                href={{ pathname: "/games", query: { mech: m.name } }}
                 className="group inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors"
                 style={{
                   background: "var(--color-surface)",
