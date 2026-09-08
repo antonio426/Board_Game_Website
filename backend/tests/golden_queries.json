@@ -421,6 +421,126 @@
       "expect_ids": [
         31260
       ]
+    },
+    {
+      "id": "filter-category-zh-input",
+      "endpoint": "search",
+      "params": {
+        "categories": "卡牌遊戲",
+        "per_page": 10
+      },
+      "conditions": {
+        "category_any": [
+          "Card Game"
+        ]
+      }
+    },
+    {
+      "id": "filter-mechanic-zh-input",
+      "endpoint": "search",
+      "params": {
+        "mechanics": "手牌管理",
+        "per_page": 10
+      },
+      "conditions": {
+        "mechanic_any": [
+          "Hand Management"
+        ]
+      }
+    },
+    {
+      "id": "filter-family-strategy",
+      "endpoint": "search",
+      "params": {
+        "family": "strategygames",
+        "per_page": 10
+      },
+      "conditions": {
+        "family": "strategygames"
+      }
+    },
+    {
+      "id": "filter-family-party",
+      "endpoint": "search",
+      "params": {
+        "family": "partygames",
+        "per_page": 10
+      },
+      "conditions": {
+        "family": "partygames"
+      }
+    },
+    {
+      "id": "filter-language-low",
+      "endpoint": "search",
+      "params": {
+        "language_dependence": "low",
+        "per_page": 10
+      },
+      "conditions": {
+        "language_band": "low"
+      }
+    },
+    {
+      "id": "filter-age-under-eight",
+      "endpoint": "search",
+      "params": {
+        "max_min_age": 8,
+        "per_page": 10
+      },
+      "conditions": {
+        "min_age_at_most": 8
+      }
+    },
+    {
+      "id": "filter-year-recent",
+      "endpoint": "search",
+      "params": {
+        "year_from": 2021,
+        "per_page": 10
+      },
+      "conditions": {
+        "year_at_least": 2021
+      }
+    },
+    {
+      "id": "filter-designer-knizia",
+      "endpoint": "search",
+      "params": {
+        "designers": "Reiner Knizia",
+        "per_page": 10
+      },
+      "conditions": {
+        "designer_any": [
+          "Reiner Knizia"
+        ]
+      }
+    },
+    {
+      "id": "sort-popular",
+      "endpoint": "search",
+      "params": {
+        "sort": "popular",
+        "per_page": 10
+      },
+      "conditions": {
+        "users_rated_at_least": 10000
+      }
+    },
+    {
+      "id": "preset-two-player-hour",
+      "endpoint": "search",
+      "params": {
+        "players": 2,
+        "playtime_max": 60,
+        "min_ratings": 100,
+        "per_page": 10
+      },
+      "conditions": {
+        "players_include": 2,
+        "max_playtime_at_most": 60,
+        "users_rated_at_least": 100
+      }
     }
   ]
 }

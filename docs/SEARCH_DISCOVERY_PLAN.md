@@ -372,3 +372,43 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
    - `scripts/index_embeddings.py --recreate`：向量重建中，依 `users_rated` 由高到低，所以熱門遊戲先進索引；語意搜尋的品質隨覆蓋率提升。機器負載高時約每分鐘 700 筆。
 3. **`backfill_subtypes.py` 只跑了 3,296 筆**：其餘由 `mark_expansions.py` 用排名判定（對這 3,296 筆驗證是零誤判）。真的要 100% 權威標記再補跑，但目前沒有必要。
 4. **語意搜尋僅英文**：中文查詢走字詞比對。要中文語意檢索需換多語 retrieval 模型並重建 collection（維度會變）。
+
+
+---
+
+## 11. 標籤中文化與篩選強化（第二輪）
+
+### 修掉的
+
+| 問題 | 影響 | 修法 |
+|---|---|---|
+| `bgg_categories`(85) / `bgg_mechanics`(196) 兩張完整中文對照表從沒被讀取 | 24 個標籤顯示英文（含最常見的 Hand Management） | 新增 `app/core/vocab.py` 當唯一權威，端點改 join 記憶體詞彙表 |
+| `/games/mechanics` 的 `$limit: 100` | 196 個機制有 96 個使用者永遠看不到 | 移除；改為左接完整詞彙表，未使用的標籤以 count 0 出現 |
+| 10,959 筆標籤是舊字串陣列 | 標籤篩選漏掉 25% 的遊戲、詳情頁 chip 空白 | `scripts/backfill_tag_objects.py` 一次修好；`_format_game` 另外做讀取時防呆 |
+| 六處連結送 `?category=`，games 頁讀 `cat=` | 標籤頁與詳情頁的標籤連結 100% 失效 | 產生端改用短鍵，`fromSearchParams` 相容舊參數 |
+| `paged_search` 有 `q` 時強制相關性重排 | 使用者選的排序被無聲忽略 | 加 `relevance_rank`，只有排序維持預設時才重排 |
+| `designers`/`publishers` 查 `designers.name` | 永遠 0 筆（實際是字串陣列） | 改查陣列本身，Reiner Knizia 從 0 變 475 筆 |
+| facet 分桶與篩選條件各走各的 | ≤240 分鐘沒數字、複雜度 3-4 那桶被吃掉 | facet stage 改由 `build_filters` 產生，結構上保證數字一致 |
+| 複雜度 `$lte 2.0` 把未評分的 0 當成輕鬆 | 約 7k 筆未評分遊戲被算進「輕鬆」 | 加 `$gt: 0` 下限，light 從 29,370 修正為 22,604 |
+| `POST /translate/terms` 的 `translated or cname` | 未驗證的公開寫入端點，把英文寫進 `name_zh` | 連同兩份重複字典一起刪除 |
+| `geekdo_enricher` 把標籤寫成字串陣列 | 每跑一次就讓文件退化 | 改寫物件；查不到翻譯給 `None` 並寫 log |
+
+### 新增的
+
+- **中文可以拿來篩選**：`build_filters_async` 把中文標籤名對回英文，`categories=卡牌遊戲` 與 `categories=Card Game` 同樣回 11,815 筆。不用 `name_zh` regex——那會放棄索引。
+- **標籤搜尋框**：中英文同時比對（「工人」與 "worker" 都找得到工人放置），已選標籤釘在最前面。
+- **五個新篩選**（都是帶數量的 chip，沒有滑桿）：
+  - 遊戲類型（BGG 大類）：戰棋 4,612 / 家庭 3,665 / 策略 3,286 / 主題 1,832 / 抽象 1,506 / 兒童 1,147 / 派對 997 / 卡牌對戰 383
+  - 文字量：幾乎無文字 13,981 / 少量 6,341 / 大量 4,076
+  - 適合年齡：6+ 4,445 / 8+ 14,560 / 10+ 22,530 / 12+ 30,650
+  - 出版年份：近五年 7,630 / 2016 年後 15,178 / 2005 年前 17,366
+  - 熱門程度：較多人玩過 17,530 / 熱門 4,347
+- **快速開始 preset**：兩人一小時 10,031 筆 / 派對開場 551 筆 / 親子同樂 2,744 筆（都遠高於「低於 100 筆就砍掉」的門檻）
+- **`sort=popular`**：依評分人數排序，對沒有 BGG 背景的人最好懂
+- **概念搜尋開關併進 `/games`**：`/explore` 改成 307 導向，不再維護第二套參數語意相反的篩選 UI
+
+### 驗證
+
+每個 chip 上的數字都等於點下去的結果數（實測 playtime 四段、weight 三段、family 八段、language 三段、age 四段、year 三段、popularity 兩段全部相符）。facet 端點 9 個並行 aggregation，334 ms、快取 120 秒。`subcategory_ranks.subdomain` 索引 `docsExamined == nReturned == 997`。
+
+Golden set 從 37 題擴到 **47 題**（新增中文標籤輸入、四個新篩選、designer、popular 排序、preset），全部通過：recall@10 / top1 / precision@10 都是 100%。

@@ -23,6 +23,19 @@ GOLDEN = BACKEND / "tests" / "golden_queries.json"
 ZH_MIN_RATING = 6.0
 ZH_MIN_USERS_RATED = 50
 
+# Mirrors LANGUAGE_DEPENDENCE_BANDS in app/core/filters.py.
+LANGUAGE_BANDS = {
+    "low": {
+        "No necessary in-game text",
+        "Some necessary text - easily memorized or small crib sheet",
+    },
+    "medium": {"Moderate in-game text - needs crib sheet or paste ups"},
+    "high": {
+        "Extensive use of text - massive conversion needed to be playable",
+        "Unplayable in another language",
+    },
+}
+
 
 def fetch(base: str, endpoint: str, params: dict) -> list[dict]:
     path = "/games/search" if endpoint == "search" else "/games"
@@ -69,6 +82,36 @@ def satisfies(game: dict, conditions: dict) -> bool:
     wanted_mechanics = conditions.get("mechanic_any")
     if wanted_mechanics and not (tag_names(game, "mechanics") & set(wanted_mechanics)):
         return False
+
+    family = conditions.get("family")
+    if family:
+        subdomains = {
+            entry.get("subdomain")
+            for entry in game.get("subcategory_ranks") or []
+            if isinstance(entry, dict)
+        }
+        if family not in subdomains:
+            return False
+
+    band = conditions.get("language_band")
+    if band and game.get("language_dependence") not in LANGUAGE_BANDS[band]:
+        return False
+
+    age = conditions.get("min_age_at_most")
+    if age is not None:
+        game_age = game.get("min_age") or 0
+        if game_age <= 0 or game_age > age:
+            return False
+
+    year = conditions.get("year_at_least")
+    if year is not None and (game.get("year_published") or 0) < year:
+        return False
+
+    designers = conditions.get("designer_any")
+    if designers:
+        names = {name for name in game.get("designers") or [] if isinstance(name, str)}
+        if not names & set(designers):
+            return False
 
     if conditions.get("zh_gate"):
         if (game.get("bgg_rating") or 0) < ZH_MIN_RATING and (game.get("users_rated") or 0) < ZH_MIN_USERS_RATED:

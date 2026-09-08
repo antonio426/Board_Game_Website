@@ -9,9 +9,12 @@ import GameImage, { gameImageUrl } from "@/components/GameImage";
 import GameFilterPanel, { type Facets, type TagVocabulary } from "@/components/GameFilterPanel";
 import {
   DEFAULT_FILTERS,
+  PRESETS,
   SORT_OPTIONS,
+  applyPreset,
   countActive,
   fromSearchParams,
+  isPresetActive,
   toApiParams,
   toFacetParams,
   toSearchParams,
@@ -50,6 +53,7 @@ interface GamesResponse {
 
 const SORT_LABEL_KEYS: Record<string, string> = {
   quality: "sortQuality",
+  popular: "sortPopular",
   rating: "sortRating",
   rank: "sortRank",
   name: "sortName",
@@ -177,6 +181,19 @@ function GamesPageInner() {
           />
         </form>
 
+        <label
+          className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm"
+          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "#CBD5E1" }}
+          title={t("conceptSearchHint")}
+        >
+          <input
+            type="checkbox"
+            checked={filters.semantic}
+            onChange={(event) => applyFilters({ ...filters, semantic: event.target.checked, page: 1 })}
+          />
+          {t("conceptSearch")}
+        </label>
+
         <select
           value={filters.sort}
           onChange={(event) => applyFilters({ ...filters, sort: event.target.value, page: 1 })}
@@ -199,6 +216,28 @@ function GamesPageInner() {
             {t("clearFilters")}
           </button>
         )}
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{t("presets")}</span>
+        {PRESETS.map((preset) => {
+          const active = isPresetActive(filters, preset.filters);
+          return (
+            <button
+              key={preset.key}
+              onClick={() => {
+                setDraftQuery("");
+                applyFilters(applyPreset(preset.filters));
+              }}
+              className="rounded-full px-3 py-1.5 text-xs font-medium transition-colors hover:brightness-125"
+              style={active
+                ? { background: "rgba(217,119,6,0.16)", border: "1px solid rgba(217,119,6,0.5)", color: "#FBBF24" }
+                : { background: "var(--color-surface)", border: "1px solid var(--color-border)", color: "#CBD5E1" }}
+            >
+              {t(`preset${preset.key.charAt(0).toUpperCase()}${preset.key.slice(1)}`)}
+            </button>
+          );
+        })}
       </div>
 
       {showFilters && (

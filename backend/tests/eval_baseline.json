@@ -1,6 +1,6 @@
 {
   "summary": {
-    "cases": 37,
+    "cases": 47,
     "recall": 1.0,
     "top1": 1.0,
     "precision": 1.0,
@@ -382,6 +382,106 @@
         183394
       ],
       "recall": 1.0
+    },
+    {
+      "id": "filter-category-zh-input",
+      "returned": 10,
+      "top_ids": [
+        251661,
+        342942,
+        338960
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-mechanic-zh-input",
+      "returned": 10,
+      "top_ids": [
+        295770,
+        224517,
+        251661
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-family-strategy",
+      "returned": 10,
+      "top_ids": [
+        397598,
+        295770,
+        224517
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-family-party",
+      "returned": 10,
+      "top_ids": [
+        240980,
+        225694,
+        446497
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-language-low",
+      "returned": 10,
+      "top_ids": [
+        224517,
+        246900,
+        220308
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-age-under-eight",
+      "returned": 10,
+      "top_ids": [
+        521,
+        456440,
+        244271
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-year-recent",
+      "returned": 10,
+      "top_ids": [
+        397598,
+        295770,
+        356080
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "filter-designer-knizia",
+      "returned": 10,
+      "top_ids": [
+        217372,
+        12,
+        42
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "sort-popular",
+      "returned": 10,
+      "top_ids": [
+        13,
+        822,
+        30549
+      ],
+      "precision": 1.0
+    },
+    {
+      "id": "preset-two-player-hour",
+      "returned": 10,
+      "top_ids": [
+        161936,
+        421006,
+        314040
+      ],
+      "precision": 1.0
     }
   ]
 }

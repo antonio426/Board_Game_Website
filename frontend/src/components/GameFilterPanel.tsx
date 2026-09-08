@@ -3,8 +3,13 @@
 import { useLocale, useTranslations } from "next-intl";
 import FilterChips, { type ChipOption } from "@/components/FilterChips";
 import {
+  AGE_OPTIONS,
+  FAMILY_OPTIONS,
+  LANGUAGE_OPTIONS,
   PLAYER_OPTIONS,
   PLAYTIME_OPTIONS,
+  POPULARITY_OPTIONS,
+  YEAR_OPTIONS,
   cycleTag,
   tagState,
   type GameFilterState,
@@ -23,6 +28,11 @@ export interface Facets {
   players: { value: number; count: number }[];
   playtime: { max: number; count: number }[];
   weight: { band: string; min: number | null; max: number | null; count: number }[];
+  families: { value: string; count: number }[];
+  language: { band: string; count: number }[];
+  age: { max: number; count: number }[];
+  year: { key: string; count: number }[];
+  popularity: { min: number; count: number }[];
 }
 
 export interface TagVocabulary {
@@ -53,10 +63,66 @@ function toggleStyle(active: boolean) {
     : controlStyle;
 }
 
+interface Choice {
+  key: string;
+  label: string;
+  count?: number;
+}
+
+/**
+ * One single-select dimension: an "any" escape hatch followed by its options,
+ * each carrying how many games it would leave. The counts come from the facet
+ * endpoint, which measures each dimension with itself removed — so the number
+ * on a chip is what you get by clicking it, not what you have now.
+ */
+function ChoiceRow({
+  label, anyLabel, choices, selected, onSelect, size = "sm",
+}: {
+  label: string;
+  anyLabel: string;
+  choices: Choice[];
+  selected: string;
+  onSelect: (key: string) => void;
+  size?: "sm" | "lg";
+}) {
+  const padding = size === "lg" ? "px-3.5 py-1.5 text-sm" : "px-2.5 py-1 text-xs";
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
+        {label}
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => onSelect("")}
+          className={`rounded-full ${padding}`}
+          style={toggleStyle(!selected)}
+        >
+          {anyLabel}
+        </button>
+        {choices.map((choice) => (
+          <button
+            key={choice.key}
+            type="button"
+            onClick={() => onSelect(choice.key)}
+            className={`rounded-full ${padding}`}
+            style={{ ...toggleStyle(selected === choice.key), opacity: choice.count === 0 ? 0.35 : 1 }}
+          >
+            {choice.label}
+            {choice.count !== undefined && <span style={{ opacity: 0.65 }}> {choice.count}</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function GameFilterPanel({ filters, onChange, facets, categories, mechanics }: Props) {
   const t = useTranslations("games");
   const locale = useLocale();
   const isZh = locale.startsWith("zh");
+
+  const set = (patch: Partial<GameFilterState>) => onChange({ ...filters, ...patch, page: 1 });
 
   const facetCount = (buckets: FacetBucket[] | undefined, name: string) =>
     buckets?.find((bucket) => bucket.name === name)?.count;
@@ -68,129 +134,144 @@ export default function GameFilterPanel({ filters, onChange, facets, categories,
       count: facetCount(buckets, tag.name),
     }));
 
-  const playerCount = (value: number) =>
-    facets?.players.find((bucket) => bucket.value === value)?.count;
+  const familyChoices: Choice[] = FAMILY_OPTIONS.map((name) => ({
+    key: name,
+    label: t(`family_${name}`),
+    count: facets?.families.find((bucket) => bucket.value === name)?.count,
+  }));
 
-  const playtimeCount = (max: number) =>
-    facets?.playtime.find((bucket) => bucket.max === max)?.count;
+  const playerChoices: Choice[] = PLAYER_OPTIONS.map((value) => ({
+    key: String(value),
+    label: String(value),
+    count: facets?.players.find((bucket) => bucket.value === value)?.count,
+  }));
 
-  const weightCount = (band: string) =>
-    facets?.weight.find((bucket) => bucket.band === band)?.count;
+  const playtimeChoices: Choice[] = PLAYTIME_OPTIONS.map((value) => ({
+    key: String(value),
+    label: `≤${value} ${t("minutes")}`,
+    count: facets?.playtime.find((bucket) => bucket.max === value)?.count,
+  }));
+
+  const weightChoices: Choice[] = WEIGHT_BAND_KEYS.map((band, index) => ({
+    key: band,
+    label: [t("complexityLight"), t("complexityMedium"), t("complexityHeavy")][index],
+    count: facets?.weight.find((bucket) => bucket.band === band)?.count,
+  }));
+
+  const languageChoices: Choice[] = LANGUAGE_OPTIONS.map((band, index) => ({
+    key: band,
+    label: [t("languageLow"), t("languageMedium"), t("languageHigh")][index],
+    count: facets?.language.find((bucket) => bucket.band === band)?.count,
+  }));
+
+  const ageChoices: Choice[] = AGE_OPTIONS.map((age) => ({
+    key: String(age),
+    label: t("ageFrom", { age }),
+    count: facets?.age.find((bucket) => bucket.max === age)?.count,
+  }));
+
+  const yearChoices: Choice[] = YEAR_OPTIONS.map((key, index) => ({
+    key,
+    label: [t("yearRecent"), t("yearModern"), t("yearClassic")][index],
+    count: facets?.year.find((bucket) => bucket.key === key)?.count,
+  }));
+
+  const popularityChoices: Choice[] = POPULARITY_OPTIONS.map((edge, index) => ({
+    key: String(edge),
+    label: [t("popularitySome"), t("popularityHot")][index],
+    count: facets?.popularity.find((bucket) => bucket.min === edge)?.count,
+  }));
 
   return (
     <div
       className="mb-6 flex flex-col gap-5 rounded-xl p-5"
       style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
     >
-      <div className="flex flex-wrap items-end gap-5">
+      <ChoiceRow
+        label={t("familyFilter")}
+        anyLabel={t("familyAny")}
+        choices={familyChoices}
+        selected={filters.family}
+        onSelect={(family) => set({ family })}
+        size="lg"
+      />
+
+      <div className="flex flex-wrap items-start gap-5">
         <div>
-          <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
-            {t("playersExact")}
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => onChange({ ...filters, players: "", bestAtPlayers: false, page: 1 })}
-              className="rounded-full px-2.5 py-1 text-xs"
-              style={toggleStyle(!filters.players)}
-            >
-              {t("playersAny")}
-            </button>
-            {PLAYER_OPTIONS.map((value) => {
-              const count = playerCount(value);
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => onChange({ ...filters, players: String(value), page: 1 })}
-                  className="rounded-full px-2.5 py-1 text-xs"
-                  style={{ ...toggleStyle(filters.players === String(value)), opacity: count === 0 ? 0.35 : 1 }}
-                >
-                  {value}
-                  {count !== undefined && <span style={{ opacity: 0.65 }}> {count}</span>}
-                </button>
-              );
-            })}
-          </div>
+          <ChoiceRow
+            label={t("playersExact")}
+            anyLabel={t("playersAny")}
+            choices={playerChoices}
+            selected={filters.players}
+            onSelect={(players) => set({ players, bestAtPlayers: players ? filters.bestAtPlayers : false })}
+          />
           {filters.players && (
             <label className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
               <input
                 type="checkbox"
                 checked={filters.bestAtPlayers}
-                onChange={(event) => onChange({ ...filters, bestAtPlayers: event.target.checked, page: 1 })}
+                onChange={(event) => set({ bestAtPlayers: event.target.checked })}
               />
               {t("bestAtPlayers")}
             </label>
           )}
         </div>
 
-        <div>
-          <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
-            {t("playtimeUnder")}
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => onChange({ ...filters, playtimeMax: "", page: 1 })}
-              className="rounded-full px-2.5 py-1 text-xs"
-              style={toggleStyle(!filters.playtimeMax)}
-            >
-              {t("anyLength")}
-            </button>
-            {PLAYTIME_OPTIONS.map((value) => {
-              const count = playtimeCount(value);
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => onChange({ ...filters, playtimeMax: String(value), page: 1 })}
-                  className="rounded-full px-2.5 py-1 text-xs"
-                  style={{ ...toggleStyle(filters.playtimeMax === String(value)), opacity: count === 0 ? 0.35 : 1 }}
-                >
-                  ≤{value} {t("minutes")}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <ChoiceRow
+          label={t("playtimeUnder")}
+          anyLabel={t("anyLength")}
+          choices={playtimeChoices}
+          selected={filters.playtimeMax}
+          onSelect={(playtimeMax) => set({ playtimeMax })}
+        />
 
-        <div>
-          <label className="mb-1.5 block text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>
-            {t("complexity")}
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => onChange({ ...filters, weightBand: "", page: 1 })}
-              className="rounded-full px-2.5 py-1 text-xs"
-              style={toggleStyle(!filters.weightBand)}
-            >
-              {t("complexityAny")}
-            </button>
-            {WEIGHT_BAND_KEYS.map((band, index) => {
-              const count = weightCount(band);
-              const label = [t("complexityLight"), t("complexityMedium"), t("complexityHeavy")][index];
-              return (
-                <button
-                  key={band}
-                  type="button"
-                  onClick={() => onChange({ ...filters, weightBand: band, page: 1 })}
-                  className="rounded-full px-2.5 py-1 text-xs"
-                  style={toggleStyle(filters.weightBand === band)}
-                >
-                  {label}
-                  {count !== undefined && <span style={{ opacity: 0.65 }}> {count}</span>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <ChoiceRow
+          label={t("complexity")}
+          anyLabel={t("complexityAny")}
+          choices={weightChoices}
+          selected={filters.weightBand}
+          onSelect={(weightBand) => set({ weightBand })}
+        />
+      </div>
 
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
+      <div className="flex flex-wrap items-start gap-5">
+        <ChoiceRow
+          label={t("languageFilter")}
+          anyLabel={t("languageAny")}
+          choices={languageChoices}
+          selected={filters.languageBand}
+          onSelect={(languageBand) => set({ languageBand })}
+        />
+
+        <ChoiceRow
+          label={t("ageFilter")}
+          anyLabel={t("ageAny")}
+          choices={ageChoices}
+          selected={filters.ageMax}
+          onSelect={(ageMax) => set({ ageMax })}
+        />
+
+        <ChoiceRow
+          label={t("yearFilter")}
+          anyLabel={t("yearAny")}
+          choices={yearChoices}
+          selected={filters.yearRange}
+          onSelect={(yearRange) => set({ yearRange })}
+        />
+
+        <ChoiceRow
+          label={t("popularityFilter")}
+          anyLabel={t("popularityAny")}
+          choices={popularityChoices}
+          selected={filters.minRatings}
+          onSelect={(minRatings) => set({ minRatings })}
+        />
+
+        <label className="mt-5 flex items-center gap-1.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
           <input
             type="checkbox"
             checked={!filters.includeExpansions}
-            onChange={(event) => onChange({ ...filters, includeExpansions: !event.target.checked, page: 1 })}
+            onChange={(event) => set({ includeExpansions: !event.target.checked })}
           />
           {t("hideExpansions")}
         </label>

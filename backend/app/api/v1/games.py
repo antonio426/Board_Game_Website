@@ -5,7 +5,14 @@ from fastapi import APIRouter, Query
 from bson import ObjectId
 
 from app.core.database import mongo_db, redis_client
-from app.core.filters import BASE_GAMES_ONLY, build_filters, build_filters_async, single_tag_filters
+from app.core.filters import (
+    BASE_GAMES_ONLY,
+    BGG_FAMILIES,
+    LANGUAGE_DEPENDENCE_BANDS,
+    build_filters,
+    build_filters_async,
+    single_tag_filters,
+)
 from app.core.quality import merge_filters, quality_gate
 from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
 from app.core import vocab
@@ -248,6 +255,12 @@ PLAYER_FACET_COUNTS = (1, 2, 3, 4, 5, 6, 8)
 PLAYTIME_EDGES = (30, 60, 120, 240)
 # (band, min_weight, max_weight) on BGG's 1-5 complexity scale.
 WEIGHT_BANDS = (("light", None, 2.0), ("medium", 2.0, 3.5), ("heavy", 3.5, None))
+# "Playable from this age or younger" — the question a parent is asking.
+AGE_EDGES = (6, 8, 10, 12)
+# (key, year_from, year_to)
+YEAR_RANGES = (("recent", 2021, None), ("modern", 2016, None), ("classic", None, 2005))
+# Minimum number of BGG ratings, as a floor on obscurity.
+POPULARITY_EDGES = (100, 1000)
 
 # High enough that no vocabulary term (85 + 196) falls out of the facet map,
 # which is what made chips outside the top 60 render a misleading 0.
@@ -304,6 +317,11 @@ async def game_facets(
     min_weight: float | None = None,
     max_weight: float | None = None,
     min_ratings: int | None = None,
+    family: str | None = Query(None, description="BGG family: strategygames, familygames, partygames, ..."),
+    language_dependence: str | None = Query(None, enum=["low", "medium", "high"]),
+    max_min_age: int | None = Query(None, description="Playable from this age or younger"),
+    year_from: int | None = None,
+    year_to: int | None = None,
 ):
     """How many games each filter option would still leave, given the others.
 
@@ -320,6 +338,8 @@ async def game_facets(
         include_expansions=include_expansions, players=players, best_at_players=best_at_players,
         playtime_max=playtime_max, playtime_min=playtime_min,
         min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+        family=family, language_dependence=language_dependence,
+        max_min_age=max_min_age, year_from=year_from, year_to=year_to,
     )
     cached = await _cached(cache_key, ttl=120)
     if cached:
@@ -329,12 +349,16 @@ async def game_facets(
         categories=categories, mechanics=mechanics,
         categories_mode=categories_mode, mechanics_mode=mechanics_mode,
         exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
-        min_ratings=min_ratings,
     )
+    # Dimensions with their own chips go here: each one is counted with itself
+    # removed, so switching between options shows real sizes.
     selection = dict(
         players=players, best_at_players=best_at_players,
         playtime_max=playtime_max, playtime_min=playtime_min,
         min_weight=min_weight, max_weight=max_weight,
+        min_ratings=min_ratings, family=family,
+        language_dependence=language_dependence, max_min_age=max_min_age,
+        year_from=year_from, year_to=year_to,
     )
 
     async def scope(**overrides) -> dict:
@@ -356,19 +380,41 @@ async def game_facets(
         f"weight_{band}": _option_stage(min_weight=low, max_weight=high)
         for band, low, high in WEIGHT_BANDS
     }
+    family_stages = {f"family_{name}": _option_stage(family=name) for name in BGG_FAMILIES}
+    language_stages = {
+        f"language_{band}": _option_stage(language_dependence=band)
+        for band in LANGUAGE_DEPENDENCE_BANDS
+    }
+    age_stages = {f"age_{edge}": _option_stage(max_min_age=edge) for edge in AGE_EDGES}
+    year_stages = {
+        f"year_{key}": _option_stage(year_from=start, year_to=end)
+        for key, start, end in YEAR_RANGES
+    }
+    popularity_stages = {
+        f"popularity_{edge}": _option_stage(min_ratings=edge) for edge in POPULARITY_EDGES
+    }
 
-    tag_scope, player_scope, playtime_scope, weight_scope = await asyncio.gather(
+    scopes = await asyncio.gather(
         scope(),
         scope(players=None, best_at_players=False),
         scope(playtime_max=None, playtime_min=None),
         scope(min_weight=None, max_weight=None),
+        scope(family=None),
+        scope(language_dependence=None),
+        scope(max_min_age=None),
+        scope(year_from=None, year_to=None),
+        scope(min_ratings=None),
     )
-    tags, player_counts, playtime_counts, weight_counts = await asyncio.gather(
-        _run_facet(tag_scope, tag_stages),
-        _run_facet(player_scope, player_stages),
-        _run_facet(playtime_scope, playtime_stages),
-        _run_facet(weight_scope, weight_stages),
-    )
+    stage_sets = [
+        tag_stages, player_stages, playtime_stages, weight_stages,
+        family_stages, language_stages, age_stages, year_stages, popularity_stages,
+    ]
+    (
+        tags, player_counts, playtime_counts, weight_counts,
+        family_counts, language_counts, age_counts, year_counts, popularity_counts,
+    ) = await asyncio.gather(*(
+        _run_facet(scoped, stages) for scoped, stages in zip(scopes, stage_sets)
+    ))
 
     translations = await _tag_translations()
 
@@ -394,6 +440,26 @@ async def game_facets(
         "weight": [
             {"band": band, "min": low, "max": high, "count": _count_of(weight_counts, f"weight_{band}")}
             for band, low, high in WEIGHT_BANDS
+        ],
+        "families": [
+            {"value": name, "count": _count_of(family_counts, f"family_{name}")}
+            for name in BGG_FAMILIES
+        ],
+        "language": [
+            {"band": band, "count": _count_of(language_counts, f"language_{band}")}
+            for band in LANGUAGE_DEPENDENCE_BANDS
+        ],
+        "age": [
+            {"max": edge, "count": _count_of(age_counts, f"age_{edge}")}
+            for edge in AGE_EDGES
+        ],
+        "year": [
+            {"key": key, "from": start, "to": end, "count": _count_of(year_counts, f"year_{key}")}
+            for key, start, end in YEAR_RANGES
+        ],
+        "popularity": [
+            {"min": edge, "count": _count_of(popularity_counts, f"popularity_{edge}")}
+            for edge in POPULARITY_EDGES
         ],
     }
     _set_cache(cache_key, result, ttl=120)
@@ -428,6 +494,11 @@ async def search_games(
     min_weight: float | None = None,
     max_weight: float | None = None,
     min_ratings: int | None = None,
+    family: str | None = Query(None, description="BGG family: strategygames, familygames, partygames, ..."),
+    language_dependence: str | None = Query(None, enum=["low", "medium", "high"]),
+    max_min_age: int | None = Query(None, description="Playable from this age or younger"),
+    year_from: int | None = None,
+    year_to: int | None = None,
 ):
     """Search with multi-value tag filters.
 
@@ -445,6 +516,8 @@ async def search_games(
         min_players=min_players, max_players=max_players,
         min_playtime=min_playtime, max_playtime=max_playtime,
         min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+        family=family, language_dependence=language_dependence,
+        max_min_age=max_min_age, year_from=year_from, year_to=year_to,
     )
     cached = await _cached(cache_key, ttl=120)
     if cached:
@@ -460,6 +533,8 @@ async def search_games(
         min_players=min_players, max_players=max_players,
         min_playtime=min_playtime, max_playtime=max_playtime,
         min_weight=min_weight, max_weight=max_weight, min_ratings=min_ratings,
+        family=family, language_dependence=language_dependence,
+        max_min_age=max_min_age, year_from=year_from, year_to=year_to,
     )
     filter_query = merge_filters(
         filter_query,

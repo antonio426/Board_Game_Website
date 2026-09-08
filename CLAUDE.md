@@ -27,6 +27,7 @@ cd backend && .venv/bin/python scripts/compute_quality_score.py  # after any rat
 cd backend && .venv/bin/python scripts/backfill_dynamicinfo.py   # weight, polls, ranks (resumable)
 cd backend && .venv/bin/python scripts/mark_expansions.py        # is_expansion from rank data
 cd backend && .venv/bin/python scripts/index_embeddings.py --recreate  # rebuild Qdrant vectors
+cd backend && .venv/bin/python scripts/backfill_tag_objects.py   # repair tag arrays from bgg_*
 python3 -c "import json;[json.load(open(f)) for f in ('frontend/src/i18n/en.json','frontend/src/i18n/zh.json')]"
 ```
 
@@ -88,8 +89,10 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
 - **`bgg_rank` is populated for all 180 k docs**, including 155 k with rank > 25 000, and the head
   of the list has ties (rank 2 is both Ark Nova and a game with `users_rated = 0`). Sorting by
   rank is meaningful only near the top.
-- Some `categories` / `mechanics` array entries have a null `name` (Splendor's categories render
-  as `,,`). The tag list endpoints filter these out; the underlying docs still carry them.
+- Tag arrays used to come in three shapes — plain strings on 10,959 documents, objects whose
+  `name_zh` echoed the English name, and objects with a null `name`. `scripts/backfill_tag_objects.py`
+  repaired all of them; `_format_game` normalizes anything that slips back in. If a crawler starts
+  writing bare strings again, tag filtering silently loses those games.
 - `name_zh` used to hold Japanese titles on 641 games (Catan = カタン, Ticket to Ride = 乗車券).
   `scripts/clean_zh_names.py` moved those into `aliases` and cleared the field, so zh falls back
   to the English name instead of showing Japanese. Re-run it after any enricher pass — the
@@ -109,10 +112,15 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
   Never re-inline the `description_en` check.
 - `app/core/indexes.py` holds the 10 `board_games` indexes; `ensure_indexes()` runs on app
   startup and via `scripts/ensure_indexes.py`. Any new filter field needs an index here.
+- `app/core/vocab.py` is the authority on tag names, sourced from the `bgg_categories` (85) and
+  `bgg_mechanics` (196) collections — join on `name`, never `id`, because those ids are a sequence
+  assigned by `translate_and_migrate.py`. It serves the vocabulary, the English→Chinese map, a
+  canonical map keyed by *both* languages, and `normalize_tags` for documents. Never take a tag's
+  Chinese name from the copy inside a game document.
 - `app/core/tags.py::tag_filter(field, value)` canonicalizes a category or mechanic name against
-  the cached vocabulary (85 + 196 names, 10 min TTL) so the filter is an indexed equality match
-  instead of a case-insensitive regex — worth ~230 ms per request. It falls back to regex for
-  values that are not real tag names.
+  that vocabulary so the filter is an indexed equality match instead of a case-insensitive regex —
+  worth ~230 ms per request. `filters.py::build_filters_async` does the same for the multi-value
+  parameters, which is what lets `categories=卡牌遊戲` work.
 - `app/core/filters.py::build_filters(...)` turns request parameters into one Mongo filter, shared
   by the list, search and facet endpoints so a chip's count always matches the page behind it.
   `BASE_GAMES_ONLY` excludes expansions, which is the default everywhere.
@@ -126,7 +134,7 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
 
 ## Search quality harness
 
-`tests/golden_queries.json` holds 33 graded queries; `scripts/eval_search.py` scores recall@10,
+`tests/golden_queries.json` holds 47 graded queries; `scripts/eval_search.py` scores recall@10,
 top-1 accuracy, and condition precision against a running API. Run it before and after any change
 to ranking, filtering, or the quality gate:
 
@@ -135,7 +143,7 @@ cd backend && .venv/bin/python scripts/eval_search.py --base http://localhost:80
 cd backend && .venv/bin/python scripts/eval_search.py --compare tests/eval_baseline.json
 ```
 
-`tests/eval_baseline.json` holds the current run — 37 cases, all passing. For reference, the
+`tests/eval_baseline.json` holds the current run — 47 cases, all passing. For reference, the
 Phase 0 starting point was `recall@10 84.2%, top1 66.7%, precision@10 84.3%, 4 zero-result cases`.
 
 A failing case is usually a real regression, but check coverage first: semantic cases need the
@@ -143,7 +151,9 @@ Qdrant index built (`scripts/index_embeddings.py`), and complexity cases need `b
 
 ## Defaults worth knowing
 
-- Sort defaults to `quality` (`quality_score`, Bayesian with m=1000), not `bgg_rank`.
+- Sort defaults to `quality` (`quality_score`, Bayesian with m=1000), not `bgg_rank`. `popular`
+  sorts by `users_rated`. A search re-ranks by relevance only while the caller leaves the sort at
+  its default — otherwise "search catan, sort by year" would silently do nothing.
 - Expansions are excluded unless `include_expansions=true`: they outscore the base games they
   extend, so an unfiltered top ten was mostly Spirit Island and Ark Nova expansions.
   `is_expansion` comes from `bgg_rank == 99999` plus at least 30 ratings — BGG ranks every rated
@@ -160,9 +170,13 @@ Qdrant index built (`scripts/index_embeddings.py`), and complexity cases need `b
   `sort` ∈ quality|rating|rank|name|weight|year.
 - `GET /api/v1/games/search` — everything above plus comma-separated `categories`, `mechanics`,
   `designers`, `publishers`, `categories_mode`/`mechanics_mode` (`any` = `$in`, `all` = `$all`),
-  `exclude_categories`, `exclude_mechanics`, `min_ratings`, and `semantic=true`.
+  `exclude_categories`, `exclude_mechanics`, `min_ratings`, `family` (BGG subdomain),
+  `language_dependence` (`low`/`medium`/`high`), `max_min_age`, `year_from`/`year_to`, and
+  `semantic=true`. Tag parameters accept Chinese names.
 - `GET /api/v1/games/facets` — the same filter parameters, returning how many games each remaining
-  option would leave (tags, player counts, playtime and weight bands).
+  option would leave (tags, players, playtime, complexity, family, language, age, year,
+  popularity). Every count is produced by `build_filters`, the same function the list endpoint
+  uses, so a chip's number cannot drift from the results behind it.
 - `GET /api/v1/games/{bgg_id}`, `/games/random`, `/games/categories`, `/games/mechanics`.
 - `GET /api/v1/recommendations/similar/{bgg_id}?method=content|collaborative|hybrid&diverse=true`
   — each result carries `reasoning.matched_categories` / `matched_mechanics`.

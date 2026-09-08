@@ -19,6 +19,35 @@ from app.core.tags import canonical_names, tag_filter
 # Expansions outscore their own base games and bury them in name searches.
 BASE_GAMES_ONLY = {"is_expansion": {"$ne": True}}
 
+# BGG's own top-level families, the way a player describes an evening. The
+# subdomain field also carries a handful of video-game values with one document
+# each, so selection is restricted to this list.
+BGG_FAMILIES = (
+    "strategygames",
+    "familygames",
+    "partygames",
+    "thematic",
+    "abstracts",
+    "wargames",
+    "childrensgames",
+    "cgs",
+)
+
+# BGG's five community verdicts on how much text a game makes you read,
+# collapsed into the three answers a buyer actually needs. "(no votes)" is
+# never selectable: it is not an answer.
+LANGUAGE_DEPENDENCE_BANDS = {
+    "low": [
+        "No necessary in-game text",
+        "Some necessary text - easily memorized or small crib sheet",
+    ],
+    "medium": ["Moderate in-game text - needs crib sheet or paste ups"],
+    "high": [
+        "Extensive use of text - massive conversion needed to be playable",
+        "Unplayable in another language",
+    ],
+}
+
 
 def _split(value: str | None) -> list[str]:
     return [part.strip() for part in (value or "").split(",") if part.strip()]
@@ -50,6 +79,11 @@ def build_filters(
     max_weight: float | None = None,
     min_rating: float | None = None,
     min_ratings: int | None = None,
+    family: str | None = None,
+    language_dependence: str | None = None,
+    max_min_age: int | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
 ) -> dict:
     """Every filter except the quality gate, the name query and expansions."""
     include: dict = {}
@@ -114,6 +148,22 @@ def build_filters(
         include["bgg_rating"] = {"$gte": min_rating}
     if min_ratings is not None:
         include["users_rated"] = {"$gte": min_ratings}
+
+    if family in BGG_FAMILIES:
+        include["subcategory_ranks.subdomain"] = family
+    if language_dependence in LANGUAGE_DEPENDENCE_BANDS:
+        include["language_dependence"] = {"$in": LANGUAGE_DEPENDENCE_BANDS[language_dependence]}
+    if max_min_age is not None:
+        # An unknown minimum age is stored as 0, and unknown is not "suitable
+        # for toddlers".
+        include["min_age"] = {"$gt": 0, "$lte": max_min_age}
+    if year_from is not None or year_to is not None:
+        year: dict = {"$gt": 0}
+        if year_from is not None:
+            year["$gte"] = year_from
+        if year_to is not None:
+            year["$lte"] = year_to
+        include["year_published"] = year
 
     return merge_filters(include, overlap, exclusions)
 
