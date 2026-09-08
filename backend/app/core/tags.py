@@ -1,38 +1,24 @@
-"""Canonical category / mechanic names.
+"""Canonical category / mechanic names for filtering.
 
 A case-insensitive `$regex` on `categories.name` cannot use the
 `categories_name` index, so tag filtering degraded into a 43k-document scan
-(~240 ms). The tag vocabulary is tiny — 85 categories, 196 mechanics — so we
-cache it and turn the caller's input into the exact stored name, which the
-index can serve directly.
+(~240 ms). Names come from `app.core.vocab`, whose canonical map is keyed by
+both the English and the Chinese name — which is how a Chinese UI can send
+「卡牌遊戲」 and still get an indexed equality match on the stored English name.
 """
-import time
+from app.core import vocab
 
-from app.core.database import mongo_db
-
-CACHE_TTL_SECONDS = 600
-
-_FIELDS = {
-    "categories": "categories.name",
-    "mechanics": "mechanics.name",
-}
-
-# field -> (lowercase name -> canonical name, fetched_at)
-_cache: dict[str, tuple[dict[str, str], float]] = {}
+_FIELDS = vocab.TAG_PATHS
 
 
-async def _load(field: str) -> dict[str, str]:
-    names = await mongo_db.board_games.distinct(_FIELDS[field])
-    return {name.lower(): name for name in names if isinstance(name, str) and name}
+async def canonical_name(field: str, value: str) -> str | None:
+    return await vocab.canonical(field, value)
 
 
-async def _lookup(field: str) -> dict[str, str]:
-    cached, fetched_at = _cache.get(field, ({}, 0.0))
-    if cached and time.monotonic() - fetched_at < CACHE_TTL_SECONDS:
-        return cached
-    names = await _load(field)
-    _cache[field] = (names, time.monotonic())
-    return names
+async def canonical_names(field: str, values: list[str]) -> list[str]:
+    """Map a caller's list onto stored names, keeping anything unrecognised."""
+    mapping = await vocab.canonical_map(field)
+    return [mapping.get(value.strip().lower(), value) for value in values]
 
 
 async def tag_filter(field: str, value: str) -> dict:
@@ -42,8 +28,7 @@ async def tag_filter(field: str, value: str) -> dict:
     regex otherwise so partial input still finds something.
     """
     path = _FIELDS[field]
-    names = await _lookup(field)
-    canonical = names.get(value.strip().lower())
+    canonical = await vocab.canonical(field, value)
     if canonical:
         return {path: canonical}
     return {path: {"$regex": value, "$options": "i"}}

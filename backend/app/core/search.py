@@ -118,16 +118,24 @@ def rerank_semantic(docs: list[dict], scores: dict[int, float]) -> list[dict]:
 
 
 async def paged_search(collection, filter_query: dict, query: str | None,
-                       page: int, per_page: int, sort_key: list) -> tuple[list[dict], int]:
+                       page: int, per_page: int, sort_key: list,
+                       relevance_rank: bool = True) -> tuple[list[dict], int]:
     """Return one page of results plus the total, relevance-ranked when possible.
 
     With a text query the top `RESCORE_LIMIT` matches are pulled back and
     re-ordered in memory; the ranking depends on comparing candidates against
     each other, which Mongo cannot express in a sort. Without a query, or past
     that many results, the database ordering stands.
+
+    `relevance_rank=False` keeps the caller's sort: re-ranking every search made
+    "search for catan, then sort by year" silently do nothing.
     """
     total = await collection.count_documents(filter_query)
     skip = (page - 1) * per_page
+
+    if not relevance_rank:
+        docs = await collection.find(filter_query).sort(sort_key).skip(skip).limit(per_page).to_list(length=per_page)
+        return docs, total
 
     if query and total <= RESCORE_LIMIT:
         docs = await collection.find(filter_query).sort(sort_key).limit(RESCORE_LIMIT).to_list(length=RESCORE_LIMIT)

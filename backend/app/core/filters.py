@@ -14,7 +14,7 @@ The second set reads backwards (`max_playtime=30` means "its ceiling is at
 least 30 minutes") and only survives for compatibility with existing callers.
 """
 from app.core.quality import merge_filters
-from app.core.tags import tag_filter
+from app.core.tags import canonical_names, tag_filter
 
 # Expansions outscore their own base games and bury them in name searches.
 BASE_GAMES_ONLY = {"is_expansion": {"$ne": True}}
@@ -70,12 +70,14 @@ def build_filters(
     if excluded_mechanics:
         exclusions["mechanics.name"] = {"$nin": excluded_mechanics}
 
+    # Stored as flat string arrays, not objects — `designers.name` matched
+    # nothing at all, so both parameters silently returned an empty list.
     designer_names = _split(designers)
     if designer_names:
-        include["designers.name"] = {"$in": designer_names}
+        include["designers"] = {"$in": designer_names}
     publisher_names = _split(publishers)
     if publisher_names:
-        include["publishers.name"] = {"$in": publisher_names}
+        include["publishers"] = {"$in": publisher_names}
 
     if players is not None:
         if best_at_players:
@@ -114,6 +116,32 @@ def build_filters(
         include["users_rated"] = {"$gte": min_ratings}
 
     return merge_filters(include, overlap, exclusions)
+
+
+TAG_PARAMS = {
+    "categories": "categories",
+    "exclude_categories": "categories",
+    "mechanics": "mechanics",
+    "exclude_mechanics": "mechanics",
+}
+
+
+async def build_filters_async(**criteria) -> dict:
+    """`build_filters`, with tag names translated back to what is stored.
+
+    Filtering matches `categories.name`, which is English, so a Chinese UI
+    sending 「卡牌遊戲」 has to be mapped onto "Card Game" here. Doing it with a
+    regex over `name_zh` instead would abandon the index and cost ~240 ms per
+    request.
+    """
+    resolved = dict(criteria)
+    for param, field in TAG_PARAMS.items():
+        value = resolved.get(param)
+        if not value:
+            continue
+        names = await canonical_names(field, _split(value))
+        resolved[param] = ",".join(names)
+    return build_filters(**resolved)
 
 
 async def single_tag_filters(category: str | None, mechanic: str | None) -> dict:

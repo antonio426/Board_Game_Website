@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query
 from bson import ObjectId
 
 from app.core.database import mongo_db, redis_client
-from app.core.filters import BASE_GAMES_ONLY, build_filters, single_tag_filters
+from app.core.filters import BASE_GAMES_ONLY, build_filters, build_filters_async, single_tag_filters
 from app.core.quality import merge_filters, quality_gate
 from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
 from app.core import vocab
@@ -17,6 +17,9 @@ router = APIRouter(prefix="/games", tags=["games"])
 
 SORT_MAP = {
     "quality": [("quality_score", -1)],
+    # For an audience with no BGG context, "most people have played it" is the
+    # most legible ordering on the site.
+    "popular": [("users_rated", -1)],
     "rating": [("bgg_rating", -1)],
     "rank": [("bgg_rank", 1)],
     "name": [("name_en", 1)],
@@ -170,7 +173,10 @@ async def list_games(
     )
 
     sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
-    docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
+    docs, total = await paged_search(
+        mongo_db.board_games, filter_query, q, page, per_page, sort_key,
+        relevance_rank=sort == DEFAULT_SORT,
+    )
     games = await _format_games(docs, locale)
 
     result = {
@@ -331,9 +337,9 @@ async def game_facets(
         min_weight=min_weight, max_weight=max_weight,
     )
 
-    def scope(**overrides) -> dict:
+    async def scope(**overrides) -> dict:
         return merge_filters(
-            build_filters(**shared, **{**selection, **overrides}),
+            await build_filters_async(**shared, **{**selection, **overrides}),
             quality_gate(locale),
             None if include_expansions else BASE_GAMES_ONLY,
             build_name_query(q),
@@ -351,11 +357,17 @@ async def game_facets(
         for band, low, high in WEIGHT_BANDS
     }
 
+    tag_scope, player_scope, playtime_scope, weight_scope = await asyncio.gather(
+        scope(),
+        scope(players=None, best_at_players=False),
+        scope(playtime_max=None, playtime_min=None),
+        scope(min_weight=None, max_weight=None),
+    )
     tags, player_counts, playtime_counts, weight_counts = await asyncio.gather(
-        _run_facet(scope(), tag_stages),
-        _run_facet(scope(players=None, best_at_players=False), player_stages),
-        _run_facet(scope(playtime_max=None, playtime_min=None), playtime_stages),
-        _run_facet(scope(min_weight=None, max_weight=None), weight_stages),
+        _run_facet(tag_scope, tag_stages),
+        _run_facet(player_scope, player_stages),
+        _run_facet(playtime_scope, playtime_stages),
+        _run_facet(weight_scope, weight_stages),
     )
 
     translations = await _tag_translations()
@@ -438,7 +450,7 @@ async def search_games(
     if cached:
         return cached
 
-    filter_query = build_filters(
+    filter_query = await build_filters_async(
         categories=categories, mechanics=mechanics,
         categories_mode=categories_mode, mechanics_mode=mechanics_mode,
         exclude_categories=exclude_categories, exclude_mechanics=exclude_mechanics,
@@ -462,7 +474,10 @@ async def search_games(
         docs, total = await _semantic_page(q, filter_query, page, per_page)
     else:
         filter_query = merge_filters(filter_query, build_name_query(q))
-        docs, total = await paged_search(mongo_db.board_games, filter_query, q, page, per_page, sort_key)
+        docs, total = await paged_search(
+            mongo_db.board_games, filter_query, q, page, per_page, sort_key,
+            relevance_rank=sort == DEFAULT_SORT,
+        )
 
     result = {
         "games": await _format_games(docs, locale),

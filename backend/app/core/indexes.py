@@ -18,6 +18,12 @@ GAME_INDEXES: list[tuple[list[tuple[str, object]], dict]] = [
     ([("bgg_rating", DESCENDING)], {"name": "bgg_rating_desc"}),
     ([("users_rated", DESCENDING)], {"name": "users_rated_desc"}),
     ([("year_published", DESCENDING)], {"name": "year_published_desc"}),
+    # sort=name and sort=weight had no index; the TEXT index cannot serve an
+    # ascending sort on name_en.
+    ([("name_en", ASCENDING)], {"name": "name_en_asc"}),
+    ([("bgg_weight", DESCENDING)], {"name": "bgg_weight_desc"}),
+    ([("designers", ASCENDING)], {"name": "designers_name"}),
+    ([("publishers", ASCENDING)], {"name": "publishers_name"}),
     ([("categories.name", ASCENDING)], {"name": "categories_name"}),
     ([("mechanics.name", ASCENDING)], {"name": "mechanics_name"}),
     ([("min_players", ASCENDING), ("max_players", ASCENDING)], {"name": "player_range"}),

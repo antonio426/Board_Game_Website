@@ -168,7 +168,8 @@
     "backToTop": "回到頂部",
     "minutes": "分鐘",
     "matchedTags": "共同點",
-    "ratedBy": "{count} 人在 BGG 評分"
+    "ratedBy": "{count} 人在 BGG 評分",
+    "tagSearch": "搜尋標籤…"
   },
   "explore": {
     "title": "探索桌遊",

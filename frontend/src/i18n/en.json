@@ -168,7 +168,8 @@
     "backToTop": "Back to top",
     "minutes": "min",
     "matchedTags": "Shares",
-    "ratedBy": "{count} BGG ratings"
+    "ratedBy": "{count} BGG ratings",
+    "tagSearch": "Search tags…"
   },
   "explore": {
     "title": "Explore Games",

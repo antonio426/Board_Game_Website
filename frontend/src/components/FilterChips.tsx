@@ -18,6 +18,7 @@ interface Props {
   lessLabel: string;
   hint?: string;
   collapsedCount?: number;
+  searchPlaceholder?: string;
 }
 
 const STYLES: Record<TagState, React.CSSProperties> = {
@@ -45,10 +46,28 @@ const STYLES: Record<TagState, React.CSSProperties> = {
  * second control, and the count shows how many games would remain.
  */
 export default function FilterChips({
-  title, options, stateOf, onToggle, moreLabel, lessLabel, hint, collapsedCount = 18,
+  title, options, stateOf, onToggle, moreLabel, lessLabel, hint,
+  collapsedCount = 18, searchPlaceholder,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? options : options.slice(0, collapsedCount);
+  const [query, setQuery] = useState("");
+
+  const needle = query.trim().toLowerCase();
+  // Matching both fields lets a Chinese reader type 「工人」 and an English one
+  // type "worker" and land on the same chip.
+  const matches = needle
+    ? options.filter((option) =>
+        option.label.toLowerCase().includes(needle) || option.name.toLowerCase().includes(needle))
+    : options;
+
+  // A chosen chip stays at the front, otherwise typing makes your own selection
+  // disappear from the list.
+  const ordered = [...matches].sort((a, b) => {
+    const chosen = (option: ChipOption) => (stateOf(option.name) === "off" ? 1 : 0);
+    return chosen(a) - chosen(b);
+  });
+
+  const visible = expanded || needle ? ordered : ordered.slice(0, collapsedCount);
 
   return (
     <div>
@@ -56,6 +75,16 @@ export default function FilterChips({
         <span className="text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>{title}</span>
         {hint && <span className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>{hint}</span>}
       </div>
+
+      {searchPlaceholder && (
+        <input
+          type="text"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={searchPlaceholder}
+          className="mb-2 w-full max-w-xs px-2.5 py-1.5 text-xs"
+        />
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         {visible.map((option) => {
@@ -78,7 +107,7 @@ export default function FilterChips({
           );
         })}
 
-        {options.length > collapsedCount && (
+        {!needle && options.length > collapsedCount && (
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
