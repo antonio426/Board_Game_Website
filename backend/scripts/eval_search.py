@@ -44,6 +44,32 @@ def fetch(base: str, endpoint: str, params: dict) -> list[dict]:
         return json.load(response).get("games", [])
 
 
+# List responses carry what a card renders; the description and the subdomain
+# ranks live only on the detail document. Two conditions are stated in terms of
+# those fields, so the games they judge are looked up once each.
+DETAIL_FIELDS = {"has_description": "description_en", "family": "subcategory_ranks"}
+_detail_cache: dict[int, dict] = {}
+
+
+def fetch_detail(base: str, bgg_id: int) -> dict:
+    if bgg_id not in _detail_cache:
+        with urllib.request.urlopen(f"{base}/games/{bgg_id}", timeout=30) as response:
+            _detail_cache[bgg_id] = json.load(response)
+    return _detail_cache[bgg_id]
+
+
+def with_detail(base: str, games: list[dict], conditions: dict) -> list[dict]:
+    """Merge in the detail-only fields the stated conditions actually read."""
+    wanted = [field for key, field in DETAIL_FIELDS.items() if conditions.get(key)]
+    if not wanted:
+        return games
+    merged = []
+    for game in games:
+        detail = fetch_detail(base, game["bgg_id"])
+        merged.append({**game, **{field: detail.get(field) for field in wanted}})
+    return merged
+
+
 def tag_names(game: dict, field: str) -> set[str]:
     return {
         (item.get("name") or "") if isinstance(item, dict) else str(item)
@@ -138,7 +164,8 @@ def run_case(base: str, case: dict, top_k: int) -> dict:
     conditions = case.get("conditions")
     if conditions:
         if games:
-            result["precision"] = sum(satisfies(g, conditions) for g in games) / len(games)
+            judged = with_detail(base, games, conditions)
+            result["precision"] = sum(satisfies(g, conditions) for g in judged) / len(judged)
         else:
             result["precision"] = 0.0
 

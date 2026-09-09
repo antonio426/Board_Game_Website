@@ -91,39 +91,6 @@ def _find_game_schema(schemas: list[dict]) -> Optional[dict]:
     return None
 
 
-def _extract_categories_zh(html: str) -> list[str]:
-    """Extract Chinese category names from detail page links."""
-    cats = []
-    seen = set()
-    for m in CATEGORY_LINK_RE.finditer(html):
-        slug = m.group(1)
-        if slug not in seen:
-            seen.add(slug)
-            # Extract visible text near the link
-            after = html[m.end():m.end() + 80]
-            text_match = re.search(r'>([^<]+)<', after)
-            if text_match:
-                text = text_match.group(1).strip()
-                if text:
-                    cats.append(text)
-    return cats
-
-
-def _extract_mechanics_zh(html: str) -> list[str]:
-    """Extract Chinese mechanic names from detail page links."""
-    mechs = []
-    seen = set()
-    for m in MECHANIC_LINK_RE.finditer(html):
-        slug = m.group(1)
-        if slug not in seen:
-            seen.add(slug)
-            after = html[m.end():m.end() + 80]
-            text_match = re.search(r'>([^<]+)<', after)
-            if text_match:
-                text = text_match.group(1).strip()
-                if text:
-                    mechs.append(text)
-    return mechs
 
 
 def _extract_hash_ids(html: str) -> list[str]:
@@ -138,44 +105,7 @@ def _extract_hash_ids(html: str) -> list[str]:
     return ids
 
 
-def _extract_designers(schema: dict) -> list[str]:
-    """Extract designer names from Game schema."""
-    authors = schema.get("author") or []
-    if isinstance(authors, dict):
-        authors = [authors]
-    result = []
-    for a in authors:
-        if isinstance(a, dict):
-            name = a.get("name", "")
-            if name:
-                result.append(name)
-        elif isinstance(a, str):
-            result.append(a)
-    return result
 
-
-def _extract_publishers(schema: dict) -> list[str]:
-    """Extract publisher names from Game schema."""
-    pubs = schema.get("publisher") or []
-    if isinstance(pubs, dict):
-        pubs = [pubs]
-    result = []
-    for p in pubs:
-        if isinstance(p, dict):
-            name = p.get("name", "")
-            if name:
-                result.append(name)
-        elif isinstance(p, str):
-            result.append(p)
-    return result
-
-
-def _extract_players(schema: dict) -> tuple[Optional[int], Optional[int]]:
-    """Extract min/max players from Game schema."""
-    players = schema.get("numberOfPlayers")
-    if isinstance(players, dict):
-        return players.get("minValue"), players.get("maxValue")
-    return None, None
 
 
 def parse_detail_page(html: str, hash_id: str) -> Optional[dict]:
@@ -207,43 +137,9 @@ def parse_detail_page(html: str, hash_id: str) -> Optional[dict]:
             # Strip any residual HTML
             desc = re.sub(r"<[^>]+>", "", desc).strip()
             if desc:
-                update["description_zh"] = desc
-
-        genre = game_schema.get("genre", "")
-        if isinstance(genre, list):
-            genre = ", ".join(genre)
-        if genre:
-            update["genre_zh"] = genre
-
-        designers = _extract_designers(game_schema)
-        if designers:
-            update["designers_zh"] = designers
-
-        publishers = _extract_publishers(game_schema)
-        if publishers:
-            update["publishers_zh"] = publishers
-
-        min_p, max_p = _extract_players(game_schema)
-        if min_p is not None:
-            update["min_players_zh"] = int(min_p)
-        if max_p is not None:
-            update["max_players_zh"] = int(max_p)
-
-        date_pub = game_schema.get("datePublished", "")
-        if date_pub:
-            try:
-                update["year_published_zhuoyouku"] = int(str(date_pub)[:4])
-            except ValueError:
-                pass
-
-    # Extract categories and mechanics from page links (not in ld+json)
-    categories_zh = _extract_categories_zh(html)
-    if categories_zh:
-        update["categories_zh"] = categories_zh
-
-    mechanics_zh = _extract_mechanics_zh(html)
-    if mechanics_zh:
-        update["mechanics_zh"] = mechanics_zh
+                # The source writes Simplified; the site stores Traditional.
+                # Without this a zh reader got 给出一个词的线索 on a 繁體 page.
+                update["description_zh"] = to_traditional(desc)
 
     update["last_zhuoyouku_enriched_at"] = datetime.now(timezone.utc)
 

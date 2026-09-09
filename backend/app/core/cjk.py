@@ -13,7 +13,15 @@ import re
 
 try:
     import opencc  # opencc-python-reimplemented
-    _S2T = opencc.OpenCC("s2t")
+
+    # s2tw, not s2t: the site is zh-TW and plain s2t produces the mainland
+    # variant forms, so "为" came back as 爲 rather than 為. s2tw stops at
+    # character variants; s2twp would also swap vocabulary (網絡 -> 網路),
+    # which is more editing than a game description asked for.
+    try:
+        _S2T = opencc.OpenCC("s2tw")
+    except Exception:  # pragma: no cover - older opencc builds
+        _S2T = opencc.OpenCC("s2t")
     _T2S = opencc.OpenCC("t2s")
     _OPENCC_OK = True
 except Exception:  # pragma: no cover

@@ -412,3 +412,80 @@ cases=33  recall@10=84.2%  top1=66.7%  precision@10=84.3%  zero-result cases=4
 每個 chip 上的數字都等於點下去的結果數（實測 playtime 四段、weight 三段、family 八段、language 三段、age 四段、year 三段、popularity 兩段全部相符）。facet 端點 9 個並行 aggregation，334 ms、快取 120 秒。`subcategory_ranks.subdomain` 索引 `docsExamined == nReturned == 997`。
 
 Golden set 從 37 題擴到 **47 題**（新增中文標籤輸入、四個新篩選、designer、popular 排序、preset），全部通過：recall@10 / top1 / precision@10 都是 100%。
+
+---
+
+## 12. Phase 6 — 中文可讀、回應變輕（第三輪）
+
+### 起點：背景任務跑完後的實測
+
+Phase 1 掛在背景的兩件事都完成了，驗收條件達標：
+
+| 指標 | Phase 1 當下 | 現在 |
+|---|---|---|
+| `bgg_weight > 0` | 9,423 | **36,632**（可展示遊戲的 84.4%） |
+| Qdrant 向量 | 6,400 | **43,401**（等於整個可展示集合） |
+| `dynamicinfo_at` | — | 43,390 |
+| golden queries | 47 題全過 | 47 題仍全過（向量補滿沒有造成回歸） |
+
+補滿之後才看得到的三個問題，就是這一輪做的事。
+
+### P6.1 列表回應瘦身 ✅
+
+`/games?per_page=20` 回 **102 KB**，其中四分之三是每款遊戲的完整英文描述，還夾帶
+enricher 的內部欄位（`zhuoyouku_id`、`subtypes`、`subcategory_ranks`、25 家出版社）。
+列表頁是一格一格的卡片，這些欄位一個都沒被讀到。
+
+- `app/api/v1/games.py::LIST_FIELDS`：列表 / 搜尋 / 語意三條路徑都帶 projection。
+  `aliases`、`is_expansion`、`quality_score` 留著不是給前端看的，是 `relevance` 要用。
+- 詳情頁 `/games/{bgg_id}` 不變，仍回完整文件。
+- 結果：列表 102 KB → **45 KB**，搜尋 65 KB → **28 KB**（各 −56%）。
+
+順帶修 `scripts/eval_search.py`：`has_description` 與 `family` 兩個條件本來讀列表回應裡的
+`description_en` / `subcategory_ranks`，欄位不再送就變成 0% precision。改成需要時才去
+`/games/{bgg_id}` 取那兩個欄位（帶快取）——這樣測的是「這款遊戲真的有描述」，
+而不是「回應剛好夾帶了描述」。
+
+### P6.2 中文存的是簡體 ✅
+
+`description_zh` 從 14 筆長到 1,538 筆，但全部是簡體：繁體站的遊戲頁面下面寫著
+「给出一个词的线索」。`name_zh` 有走 `to_traditional`，描述沒有。
+
+- `zhuoyouku_enricher` 的寫入路徑補上轉換，斷掉來源。
+- `scripts/traditionalize_zh.py`（預設 dry-run，`--apply` 才寫）：轉了 **1,555** 筆。
+- `app/core/cjk.py` 的 OpenCC 設定從 `s2t` 換成 `s2tw`。`s2t` 給的是「爲」，
+  台灣寫「為」。沒有用 `s2twp`，那會連詞彙一起換（網絡→網路），對遊戲描述來說改過頭了。
+- 同一支腳本清掉 enricher 私自鏡射的 9 個欄位（`categories_zh`、`mechanics_zh`、
+  `genre_zh`、`designers_zh` …，共 1,524 筆）。標籤的中文名以 `app/core/vocab.py` 為準，
+  文件裡那份簡體副本只會跟它打架——CLAUDE.md 早就寫著不要從遊戲文件拿標籤中文名。
+
+### P6.3 中文語意搜尋 ✅
+
+向量索引是 `BAAI/bge-small-en-v1.5`，英文檢索模型。中文句子直接丟進去等於亂數：
+實測「適合兩人的合作解謎」回的是 Just One（3–7 人派對）、Café International、
+Nothing Personal，三款都不是合作遊戲。
+
+新增 `app/core/zh_query.py`：查詢先讀成英文概念再進向量。字典就是站上已經有的那份——
+85 個分類 + 196 個機制各自的中文名——外加一組描述遊戲但不是標籤的日常詞
+（人數、長度、輕重、氣氛）。
+
+- 「適合兩人的合作解謎」→ `cooperative two player puzzle solving`
+- 「卡牌遊戲 引擎建造」→ `engine building Card Game`
+- 「璀璨寶石」→ 對不到任何概念 → **回 None，改走名稱比對**。
+  對不到就不要硬送進模型：英文模型讀中文書名只會生出看起來合理的噪音，
+  比誠實說一句「這題走名稱比對」更糟。
+
+實測後的前五名：合作解謎那題全部是合作 / 解謎遊戲；引擎建造那題全部是引擎建造；
+書名那題第一筆是璀璨寶石本體。
+
+Golden set 從 47 題加到 **51 題**（三題中文語意 + 一題中文書名必須退回名稱比對），
+全部通過，recall@10 / top1 / precision@10 都是 100%。
+
+### 這一輪沒動、但確認過的
+
+- **`name_zh` 的天花板已經到了**：BGG 的中文別名對 `users_rated >= 500` 的遊戲查完了
+  4,405 筆，一筆都沒有。想再往上只能換來源（出版社官網、社群、翻譯 API），
+  這仍然是第 9 節的待決定事項。長尾（`users_rated < 500`）還有 30,387 筆沒查過，
+  值得掛背景跑，但預期命中率很低。
+- **中文語意搜尋不需要換模型**。原本以為要換多語 retrieval 模型並重建整個 collection
+  （維度會變），實際上把查詢翻成概念就解決了，索引一個字都不用動。

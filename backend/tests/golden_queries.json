@@ -541,6 +541,50 @@
         "max_playtime_at_most": 60,
         "users_rated_at_least": 100
       }
+    },
+    {
+      "id": "semantic-zh-worker-farm",
+      "endpoint": "search",
+      "params": {
+        "q": "工人放置 農場",
+        "locale": "zh-TW",
+        "semantic": true
+      },
+      "expect_ids": [
+        31260
+      ]
+    },
+    {
+      "id": "semantic-zh-two-player-duel",
+      "endpoint": "search",
+      "params": {
+        "q": "兩人 文明 卡牌 對決",
+        "locale": "zh-TW",
+        "semantic": true
+      },
+      "expect_ids": [
+        173346
+      ]
+    },
+    {
+      "id": "semantic-zh-cooperative-disease",
+      "endpoint": "search",
+      "params": {
+        "q": "合作 醫療 疫情",
+        "locale": "zh-TW",
+        "semantic": true
+      },
+      "expect_top_id": 30549
+    },
+    {
+      "id": "semantic-zh-title-falls-back",
+      "endpoint": "search",
+      "params": {
+        "q": "璀璨寶石",
+        "locale": "zh-TW",
+        "semantic": true
+      },
+      "expect_top_id": 148228
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "summary": {
-    "cases": 47,
+    "cases": 51,
     "recall": 1.0,
     "top1": 1.0,
     "precision": 1.0,
@@ -482,6 +482,46 @@
         314040
       ],
       "precision": 1.0
+    },
+    {
+      "id": "semantic-zh-worker-farm",
+      "returned": 10,
+      "top_ids": [
+        31260,
+        102794,
+        183394
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "semantic-zh-two-player-duel",
+      "returned": 10,
+      "top_ids": [
+        71,
+        173346,
+        233247
+      ],
+      "recall": 1.0
+    },
+    {
+      "id": "semantic-zh-cooperative-disease",
+      "returned": 10,
+      "top_ids": [
+        30549,
+        254640,
+        440540
+      ],
+      "top1": 1.0
+    },
+    {
+      "id": "semantic-zh-title-falls-back",
+      "returned": 4,
+      "top_ids": [
+        148228,
+        364073,
+        406291
+      ],
+      "top1": 1.0
     }
   ]
 }

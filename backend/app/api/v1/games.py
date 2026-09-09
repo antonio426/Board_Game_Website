@@ -16,6 +16,7 @@ from app.core.filters import (
 from app.core.quality import merge_filters, quality_gate
 from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
 from app.core import vocab
+from app.core.zh_query import embedding_query
 from app.recommenders.embedding import search_similar, semantic_enabled
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,27 @@ SORT_MAP = {
     "year": [("year_published", -1)],
 }
 DEFAULT_SORT = "quality"
+
+# A list response is a grid of cards: name, art, the numbers on the card, and
+# the tags behind the chips. Sending the whole document instead shipped every
+# game's full English description plus the enricher's bookkeeping — a page of
+# 20 games was 100 KB, of which the descriptions alone were three quarters, and
+# nothing on the client ever read them. Detail pages still get the full
+# document from `/games/{bgg_id}`.
+#
+# `aliases`, `is_expansion` and `quality_score` are here because `relevance`
+# ranks on them, not because the client shows them.
+LIST_FIELDS = (
+    "bgg_id", "name_en", "name_zh", "aliases",
+    "image", "thumbnail", "local_image", "local_thumbnail",
+    "min_players", "max_players", "best_players", "recommended_players",
+    "min_playtime", "max_playtime", "min_age", "player_age",
+    "year_published", "language_dependence",
+    "bgg_rating", "bgg_avg_rating", "bgg_rank", "bgg_weight", "users_rated",
+    "quality_score", "is_expansion", "series",
+    "categories", "mechanics", "designers",
+)
+LIST_PROJECTION = {field: 1 for field in LIST_FIELDS}
 
 
 def _format_game(doc: dict, locale: str = "en", translations: dict | None = None) -> dict:
@@ -93,15 +115,20 @@ def _set_cache(key: str, data, ttl: int = 300):
 SEMANTIC_CANDIDATES = 200
 
 
-async def _semantic_page(query: str, filter_query: dict, page: int, per_page: int) -> tuple[list[dict], int]:
-    """Vector hits, narrowed by the same filters and kept in similarity order."""
-    hits = await search_similar(query, top_k=SEMANTIC_CANDIDATES)
+async def _semantic_page(embed_text: str, filter_query: dict, page: int, per_page: int) -> tuple[list[dict], int]:
+    """Vector hits, narrowed by the same filters and kept in similarity order.
+
+    `embed_text` is what `embedding_query` decided to send to an English model,
+    which for a Chinese query is its English concepts rather than the words the
+    user typed.
+    """
+    hits = await search_similar(embed_text, top_k=SEMANTIC_CANDIDATES)
     if not hits:
         return [], 0
 
     scores = {hit["bgg_id"]: hit["score"] for hit in hits}
     scoped = merge_filters(filter_query, {"bgg_id": {"$in": list(scores)}})
-    docs = await mongo_db.board_games.find(scoped).to_list(length=SEMANTIC_CANDIDATES)
+    docs = await mongo_db.board_games.find(scoped, LIST_PROJECTION).to_list(length=SEMANTIC_CANDIDATES)
     docs = rerank_semantic(docs, scores)
 
     skip = (page - 1) * per_page
@@ -182,7 +209,7 @@ async def list_games(
     sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
     docs, total = await paged_search(
         mongo_db.board_games, filter_query, q, page, per_page, sort_key,
-        relevance_rank=sort == DEFAULT_SORT,
+        relevance_rank=sort == DEFAULT_SORT, projection=LIST_PROJECTION,
     )
     games = await _format_games(docs, locale)
 
@@ -543,15 +570,18 @@ async def search_games(
     )
 
     sort_key = SORT_MAP.get(sort, SORT_MAP[DEFAULT_SORT])
-    use_semantic = semantic and bool(q) and semantic_enabled()
+    # A Chinese query the concept dictionary cannot read — a game title, nearly
+    # always — comes back as None, and name matching answers it instead.
+    embed_text = await embedding_query(q) if semantic else None
+    use_semantic = semantic and bool(embed_text) and semantic_enabled()
 
     if use_semantic:
-        docs, total = await _semantic_page(q, filter_query, page, per_page)
+        docs, total = await _semantic_page(embed_text, filter_query, page, per_page)
     else:
         filter_query = merge_filters(filter_query, build_name_query(q))
         docs, total = await paged_search(
             mongo_db.board_games, filter_query, q, page, per_page, sort_key,
-            relevance_rank=sort == DEFAULT_SORT,
+            relevance_rank=sort == DEFAULT_SORT, projection=LIST_PROJECTION,
         )
 
     result = {
