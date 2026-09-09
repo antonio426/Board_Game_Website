@@ -32,7 +32,9 @@
     "ratedBy": "ratings",
     "bestAt": "Best at",
     "complexityLabel": "Complexity",
-    "language": "Language need"
+    "language": "Language need",
+    "enlargeImage": "Enlarge image",
+    "closeImage": "Close image"
   },
   "nav": {
     "home": "Home",
@@ -53,7 +55,10 @@
     "quickPicks": "Quick Picks",
     "quick2p": "2-Player Games",
     "quickParty": "Party Games",
-    "quickLight": "Light & Quick"
+    "quickLight": "Light & Quick",
+    "recentlyViewed": "Recently viewed",
+    "quickStart": "Quick start",
+    "randomDesc": "Discover a random board game"
   },
   "survey": {
     "stepOf": "Step {current} of {total}",
@@ -122,7 +127,9 @@
     "owned": "Owned",
     "designers": "Designers:",
     "publishers": "Publishers:",
-    "emptyCollection": "No games in your collection yet. Start exploring!"
+    "emptyCollection": "No games in your collection yet. Start exploring!",
+    "signInToSave": "Sign in to save this game",
+    "signInBenefits": "Keep your collection across devices and get recommendations shaped by it"
   },
   "games": {
     "title": "Board Games",

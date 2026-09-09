@@ -142,7 +142,7 @@
 
 ---
 
-## 4b. Sprint 2：下一個 2-3 天 batch ✅ READY TO EXECUTE
+## 4b. Sprint 2：下一個 2-3 天 batch ✅ DONE
 
 從 Tier 2 挑這 5 項，預估總時間 **~18-23 小時 = 2.3-2.9 天**：
 
@@ -239,3 +239,37 @@
 - 用 Playwright + 視覺截圖錄一段新手使用者流程，找真正的痛點
 - 問 3-5 個真實使用者做 usability test
 - 設 analytics（Mixpanel / Plausible）量化每個 step 的 drop-off
+
+
+---
+
+## 4c. Sprint 2 執行結果
+
+| # | 工作 | 狀態 | 落點 |
+|---|---|---|---|
+| T2.1 | **B3** 圖片 lightbox | ✅ | `components/ImageLightbox.tsx`，詳情頁封面可點放大 |
+| T2.2 | **C1** 多選 tag filter | ✅ | 已在 `commit e321c17` 的 chip 篩選面板完成 |
+| T2.3 | **A3** 最近瀏覽 | ✅ | `hooks/useRecentlyViewed.ts` + 首頁「最近看過」 |
+| T2.4 | **B4** 未登入 CTA | ✅ | 詳情頁未登入時顯示登入好處與登入按鈕 |
+| T2.5 | **F2** 推薦理由 | ✅ | 後端 `reasoning`，詳情頁顯示共同標籤 |
+| T2.6 | **B5 / B7** `users_rated` + 推薦依據 | ✅ | StatBox 顯示評分人數 |
+
+### 實作筆記
+
+- **Lightbox 用 `createPortal`**：封面外層是 `overflow-hidden` 的圓角卡片，直接放在裡面的
+  全螢幕層會被裁掉，z-index 拉多高都沒用。Esc 關閉、點背景關閉、點圖片不關、開啟時鎖住
+  背景捲動。
+- **最近瀏覽存 localStorage**，不做在伺服器端：未登入的人最需要找回兩步前看過的那款遊戲，
+  而那正是還沒有帳號的時候。用 `useSyncExternalStore` 而不是 `useEffect` + `setState`，
+  順便讓同一個瀏覽器的另一個分頁也會更新。
+- **首頁三個 Quick Start 連結的參數是反的**：`max_playtime=60` 在後端的語意是
+  「時長上限至少 60 分鐘」，不是「一小時內玩得完」（見 CLAUDE.md 的 known traps）。
+  改成 `players` / `playtime_max`。另外「Quick Start」與隨機按鈕的說明本來是寫死的英文，
+  雙語站漏了這兩個字串。
+
+### 驗證
+
+`npx tsc --noEmit` 與 `npm run lint` 皆無錯誤（剩下的 warning 是既有的 `<img>` 與字型提示）；
+兩份 i18n JSON 都能 parse 且鍵值對齊；`/zh`、`/zh/games`、`/zh/games/{id}`、`/en/games/{id}`
+四頁 SSR 200，登入 CTA、放大觸發點、繁體中文描述都出現在輸出裡。lightbox 開闔與最近瀏覽
+的寫入是瀏覽器端行為，只驗到 render 與型別，實際點擊仍需在瀏覽器確認一次。

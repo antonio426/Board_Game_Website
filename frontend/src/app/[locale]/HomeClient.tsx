@@ -5,6 +5,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { Link, useRouter } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
+import { useRecentlyViewed } from "@/hooks/useRecentlyViewed";
 
 interface Game {
   bgg_id: number;
@@ -59,6 +60,19 @@ function GameCard({ game, locale }: { game: Game; locale: string }) {
   );
 }
 
+function RecentCard({ game }: { game: { bgg_id: number; name: string; local_thumbnail?: string; local_image?: string } }) {
+  return (
+    <Link href={`/games/${game.bgg_id}`} className="game-card group block">
+      <div className="aspect-[4/3] overflow-hidden" style={{ background: 'var(--color-muted)' }}>
+        <GameImage src={gameImageUrl(game)} alt={game.name} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+      </div>
+      <div className="p-3.5">
+        <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{game.name}</h3>
+      </div>
+    </Link>
+  );
+}
+
 function QuickLink({ href, onClick, color, icon, label, desc }: { href?: string; onClick?: () => void; color: string; icon: React.ReactNode; label: string; desc?: string }) {
   const content = (
     <>
@@ -96,6 +110,7 @@ export default function HomeClient() {
   const [topRated, setTopRated] = useState<Game[]>([]);
   const [forYou, setForYou] = useState<Game[]>([]);
   const [quickPicks, setQuickPicks] = useState<Game[]>([]);
+  const recentlyViewed = useRecentlyViewed();
 
   const goRandom = async () => {
     try {
@@ -121,6 +136,15 @@ export default function HomeClient() {
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-10 space-y-12">
+      {recentlyViewed.length > 0 && (
+        <section>
+          <SectionHeader color="#38BDF8" title={t("recentlyViewed")} />
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            {recentlyViewed.slice(0, 6).map((g) => <RecentCard key={g.bgg_id} game={g} />)}
+          </div>
+        </section>
+      )}
+
       {forYou.length > 0 && (
         <section>
           <SectionHeader color="#D97706" title={t("forYou")} />
@@ -145,22 +169,22 @@ export default function HomeClient() {
       </section>
 
       <section>
-        <SectionHeader color="#60A5FA" title="Quick Start" />
+        <SectionHeader color="#60A5FA" title={t("quickStart")} />
         <div className="grid gap-4 sm:grid-cols-3">
           <QuickLink
-            href="/games?min_players=2"
+            href="/games?players=2"
             color="#D97706"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" strokeWidth="1.5"><circle cx="9" cy="7" r="3"/><circle cx="15" cy="7" r="3"/><path d="M5 21v-2a4 4 0 014-4h0M19 21v-2a4 4 0 00-4-4h0"/></svg>}
             label={t("quick2p")}
           />
           <QuickLink
-            href="/games?min_players=4&max_playtime=60"
+            href="/games?players=4&playtime_max=60"
             color="#15803D"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" strokeWidth="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>}
             label={t("quickParty")}
           />
           <QuickLink
-            href="/games?max_weight=2&max_playtime=30"
+            href="/games?max_weight=2&playtime_max=30"
             color="#7C3AED"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A78BFA" strokeWidth="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>}
             label={t("quickLight")}
@@ -170,7 +194,7 @@ export default function HomeClient() {
             color="#22C55E"
             icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><circle cx="16" cy="16" r="1.5"/><circle cx="16" cy="8" r="1.5"/><circle cx="8" cy="16" r="1.5"/></svg>}
             label={t("feelingLucky")}
-            desc="Discover a random board game"
+            desc={t("randomDesc")}
           />
         </div>
       </section>

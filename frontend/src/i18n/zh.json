@@ -32,7 +32,9 @@
     "ratedBy": "人評分",
     "bestAt": "最佳人數",
     "complexityLabel": "複雜度",
-    "language": "語言需求"
+    "language": "語言需求",
+    "enlargeImage": "放大圖片",
+    "closeImage": "關閉圖片"
   },
   "nav": {
     "home": "首頁",
@@ -53,7 +55,10 @@
     "quickPicks": "快速選擇",
     "quick2p": "雙人遊戲",
     "quickParty": "派對遊戲",
-    "quickLight": "輕鬆快速"
+    "quickLight": "輕鬆快速",
+    "recentlyViewed": "最近看過",
+    "quickStart": "快速開始",
+    "randomDesc": "隨機挑一款來看看"
   },
   "survey": {
     "stepOf": "第 {current} 步，共 {total} 步",
@@ -122,7 +127,9 @@
     "owned": "已擁有",
     "designers": "設計師：",
     "publishers": "出版商：",
-    "emptyCollection": "收藏是空的，開始探索吧！"
+    "emptyCollection": "收藏是空的，開始探索吧！",
+    "signInToSave": "登入即可收藏這款遊戲",
+    "signInBenefits": "收藏跨裝置同步，推薦也會照著你的收藏調整"
   },
   "games": {
     "title": "桌遊列表",

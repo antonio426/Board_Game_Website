@@ -6,6 +6,9 @@ import { useState } from "react";
 import { useTrackView, useTrackActions } from "@/hooks/useTracking";
 import { useAuth } from "@/hooks/useAuth";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
+import ImageLightbox from "@/components/ImageLightbox";
+import LoginButton from "@/components/LoginButton";
+import { useRecordRecentlyViewed } from "@/hooks/useRecentlyViewed";
 import { apiFetch } from "@/lib/api";
 
 interface Game {
@@ -69,16 +72,25 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
   const displayName = locale === "zh" ? (game.name_zh || game.name_en) : (game.name_en || game.name_zh);
   const altName = locale === "zh" ? (game.name_zh ? game.name_en : "") : (game.name_en ? game.name_zh : "");
   const description = locale === "zh" ? (game.description_zh || game.description_en) : (game.description_en || game.description_zh);
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const track = useTrackActions();
 
   useTrackView(game.bgg_id);
+  useRecordRecentlyViewed({
+    bgg_id: game.bgg_id,
+    name: displayName,
+    local_thumbnail: game.local_thumbnail,
+    local_image: game.local_image,
+  });
 
   const [favorited, setFavorited] = useState(false);
   const [owned, setOwned] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [shareCopied, setShareCopied] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const fullImage = gameImageUrl(game, false);
 
   const handleShare = async () => {
     try {
@@ -133,8 +145,28 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
     <main className="mx-auto max-w-5xl px-5 py-8">
       <div className="mb-8 grid gap-8 md:grid-cols-[340px_1fr]">
         <div className="overflow-hidden rounded-xl" style={{ background: 'var(--color-muted)', border: '1px solid var(--color-border)' }}>
-          <GameImage src={gameImageUrl(game, false)} alt={displayName} className="w-full object-cover" />
+          {fullImage ? (
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              aria-label={t("enlargeImage")}
+              className="block w-full cursor-zoom-in"
+            >
+              <GameImage src={fullImage} alt={displayName} className="w-full object-cover" />
+            </button>
+          ) : (
+            <GameImage src={null} alt={displayName} className="w-full object-cover" />
+          )}
         </div>
+
+        {lightboxOpen && fullImage && (
+          <ImageLightbox
+            src={fullImage}
+            alt={displayName}
+            closeLabel={t("closeImage")}
+            onClose={() => setLightboxOpen(false)}
+          />
+        )}
 
         <div>
           <h1 className="font-display text-3xl tracking-wide">{displayName}</h1>
@@ -176,6 +208,21 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
                   </button>
                 ))}
                 {userRating > 0 && <span className="ml-1.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>{userRating}/10</span>}
+              </div>
+            </div>
+          )}
+
+          {!user && !authLoading && (
+            <div
+              className="mt-4 flex flex-wrap items-center gap-3 rounded-lg px-4 py-3"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            >
+              <div className="text-sm">
+                <p style={{ color: '#CBD5E1' }}>{tp("signInToSave")}</p>
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{tp("signInBenefits")}</p>
+              </div>
+              <div className="ml-auto">
+                <LoginButton />
               </div>
             </div>
           )}
