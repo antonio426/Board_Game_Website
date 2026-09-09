@@ -28,6 +28,7 @@ cd backend && .venv/bin/python scripts/backfill_dynamicinfo.py   # weight, polls
 cd backend && .venv/bin/python scripts/mark_expansions.py        # is_expansion from rank data
 cd backend && .venv/bin/python scripts/index_embeddings.py --recreate  # rebuild Qdrant vectors
 cd backend && .venv/bin/python scripts/backfill_tag_objects.py   # repair tag arrays from bgg_*
+cd backend && .venv/bin/python scripts/traditionalize_zh.py      # s2tw + drop enricher mirrors (--apply)
 python3 -c "import json;[json.load(open(f)) for f in ('frontend/src/i18n/en.json','frontend/src/i18n/zh.json')]"
 ```
 
@@ -64,24 +65,25 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
 | `users_rated >= 100` | 23,363 | Best available popularity signal |
 | `users_rated >= 1000` | 5,155 | The realistic "recommendable" core |
 | `name_zh` non-empty | 3,280 | zh locale falls back to English for most games |
-| `description_zh` non-empty | 14 | zh descriptions are effectively missing |
-| `bgg_weight > 0` | 9 | **Complexity is not populated** |
+| `description_zh` non-empty | 1,538 | Traditional; the rest fall back to English |
+| `bgg_weight > 0` | 36,632 | Backfilled; complexity filters are live |
 | `aliases` present | 3,280 | CJK alias search only covers translated games |
-| Qdrant vectors | 7,833 | Semantic search covers ~18 % of quality games |
+| Qdrant vectors | 43,401 | Every showable game is indexed |
 
 ### Known traps
 
-- **Semantic search is English-only.** `BAAI/bge-small-en-v1.5` is a retrieval model; a
-  multilingual paraphrase model was tried first and retrieved far worse ("birds engine builder"
-  returned five games with Birds in the title and no Wingspan). Chinese queries go through the
-  lexical path, which matches `name_zh` and `aliases`. `SEMANTIC_SEARCH_ENABLED=false` turns the
+- **The vector index is English; Chinese queries are translated, not embedded.**
+  `BAAI/bge-small-en-v1.5` is a retrieval model; a multilingual paraphrase model was tried first
+  and retrieved far worse ("birds engine builder" returned five games with Birds in the title and
+  no Wingspan). `app/core/zh_query.py` maps a Chinese query onto English concepts using the tag
+  vocabulary plus a list of everyday words, so 「合作解謎」 searches as "cooperative puzzle
+  solving". A Chinese query that maps to nothing — a game title, nearly always — goes through the
+  lexical path instead, which matches `name_zh` and `aliases`. `SEMANTIC_SEARCH_ENABLED=false` turns the
   vector path off entirely and avoids the model download at boot.
 - **Two vocabularies exist for players and playtime.** `players`, `playtime_max` and
   `playtime_min` mean what they say. The older `min_players`, `max_players`, `min_playtime` and
   `max_playtime` are single-sided range-overlap tests — `max_playtime=30` means "its ceiling is at
   least 30 minutes" — kept only for compatibility. Use the first set.
-- **`bgg_weight` is being backfilled.** Until `scripts/backfill_dynamicinfo.py` finishes its sweep,
-  complexity filters only see the games already covered; check with `scripts/data_health.py`.
 - **The BGG XML API answers 401 now.** Crawlers use `api.geekdo.com/api/dynamicinfo` (weight,
   player polls, subdomain ranks) and `api.geekdo.com/api/geekitems` (real subtype). That API
   starts returning 429 above roughly ten requests a second across all jobs, so keep
@@ -97,6 +99,10 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
   `scripts/clean_zh_names.py` moved those into `aliases` and cleared the field, so zh falls back
   to the English name instead of showing Japanese. Re-run it after any enricher pass — the
   enrichers still accept any CJK alternate BGG offers.
+- **Anything Chinese is stored Traditional.** `app/core/cjk.py::to_traditional` uses OpenCC
+  `s2tw`, not `s2t` — plain `s2t` writes 爲 where Taiwan writes 為. The zhuoyouku enricher used to
+  skip the conversion for descriptions; `scripts/traditionalize_zh.py` repairs anything that slips
+  through and clears the enricher's private mirror fields.
 - `description_zh` exists as an empty string on every doc — presence checks must test `$ne: ""`,
   not `$exists`.
 - Fixed in Phase 0, kept here as history: the code used to query a `num_ratings` field that does
@@ -112,6 +118,15 @@ Written by the Phase 1-2 scripts: `quality_score` (Bayesian rating, see
   Never re-inline the `description_en` check.
 - `app/core/indexes.py` holds the 10 `board_games` indexes; `ensure_indexes()` runs on app
   startup and via `scripts/ensure_indexes.py`. Any new filter field needs an index here.
+- `app/core/formatting.py::format_game` decides the display name, the tag translations and
+  the image paths for every response that carries games — the games router and the collection
+  endpoint both go through it, so locale never gets decided in a component.
+- `app/core/projections.py::LIST_PROJECTION` is what a card actually needs. Lists, searches and
+  the collection endpoint all project with it; a page of 20 games went from 102 KB to 45 KB when
+  the English descriptions stopped riding along. Detail responses stay complete.
+- `app/core/zh_query.py::embedding_query` reads a Chinese query through the bilingual tag
+  vocabulary before it reaches the English embedding model, and returns None when it maps to
+  nothing so the caller falls back to name matching rather than embedding a game title.
 - `app/core/vocab.py` is the authority on tag names, sourced from the `bgg_categories` (85) and
   `bgg_mechanics` (196) collections — join on `name`, never `id`, because those ids are a sequence
   assigned by `translate_and_migrate.py`. It serves the vocabulary, the English→Chinese map, a
@@ -177,6 +192,8 @@ Qdrant index built (`scripts/index_embeddings.py`), and complexity cases need `b
   option would leave (tags, players, playtime, complexity, family, language, age, year,
   popularity). Every count is produced by `build_filters`, the same function the list endpoint
   uses, so a chip's number cannot drift from the results behind it.
+- `GET /api/v1/games/compare?ids=1,2,3` — up to four games plus `shared` and `unique`
+  categories/mechanics, computed server-side so both locales agree on the overlap.
 - `GET /api/v1/games/{bgg_id}`, `/games/random`, `/games/categories`, `/games/mechanics`.
 - `GET /api/v1/recommendations/similar/{bgg_id}?method=content|collaborative|hybrid&diverse=true`
   — each result carries `reasoning.matched_categories` / `matched_mechanics`.
