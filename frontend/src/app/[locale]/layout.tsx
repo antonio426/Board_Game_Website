@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { routing } from "@/i18n/routing";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import CompareBar from "@/components/CompareBar";
 
 export default async function LocaleLayout({
   children,
@@ -31,6 +32,7 @@ export default async function LocaleLayout({
           <Navbar />
           <div className="flex-1">{children}</div>
           <Footer />
+          <CompareBar />
         </NextIntlClientProvider>
       </body>
     </html>

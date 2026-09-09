@@ -129,7 +129,11 @@
     "publishers": "出版商：",
     "emptyCollection": "收藏是空的，開始探索吧！",
     "signInToSave": "登入即可收藏這款遊戲",
-    "signInBenefits": "收藏跨裝置同步，推薦也會照著你的收藏調整"
+    "signInBenefits": "收藏跨裝置同步，推薦也會照著你的收藏調整",
+    "wishlist": "想玩",
+    "want": "想玩",
+    "wanted": "已在想玩清單",
+    "myRating": "我的評分"
   },
   "games": {
     "title": "桌遊列表",
@@ -242,5 +246,21 @@
   "tags": {
     "title": "依標籤瀏覽",
     "subtitle": "點選類別或機制，快速找到相似的桌遊。"
+  },
+  "compare": {
+    "title": "比較遊戲",
+    "add": "加入比較",
+    "added": "比較中",
+    "full": "最多同時比較四款",
+    "selected": "已選 {count} 款",
+    "open": "開始比較",
+    "clear": "清除",
+    "remove": "移除",
+    "empty": "挑幾款遊戲，這裡會把它們的數字並排給你看。",
+    "browse": "去逛遊戲",
+    "shared": "它們的共同點",
+    "noShared": "沒有共同的分類或機制。",
+    "uniqueTags": "只有這款有",
+    "minAge": "適齡"
   }
 }

@@ -9,6 +9,7 @@ import GameImage, { gameImageUrl } from "@/components/GameImage";
 import ImageLightbox from "@/components/ImageLightbox";
 import LoginButton from "@/components/LoginButton";
 import { useRecordRecentlyViewed } from "@/hooks/useRecentlyViewed";
+import { useCompare } from "@/hooks/useCompare";
 import { apiFetch } from "@/lib/api";
 
 interface Game {
@@ -68,6 +69,7 @@ function MatchedTags({ reasoning, label }: { reasoning?: Game["reasoning"]; labe
 export default function GameDetailClient({ game, similarGames }: { game: Game; similarGames: Game[] }) {
   const t = useTranslations("common");
   const tp = useTranslations("profile");
+  const tcmp = useTranslations("compare");
   const locale = useLocale();
   const displayName = locale === "zh" ? (game.name_zh || game.name_en) : (game.name_en || game.name_zh);
   const altName = locale === "zh" ? (game.name_zh ? game.name_en : "") : (game.name_en ? game.name_zh : "");
@@ -85,10 +87,13 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
 
   const [favorited, setFavorited] = useState(false);
   const [owned, setOwned] = useState(false);
+  const [wanted, setWanted] = useState(false);
   const [userRating, setUserRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [shareCopied, setShareCopied] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const { ids: compareIds, toggle: toggleCompare, isFull: compareFull } = useCompare();
+  const inComparison = compareIds.includes(game.bgg_id);
 
   const fullImage = gameImageUrl(game, false);
 
@@ -121,6 +126,17 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
         body: JSON.stringify({ bgg_id: game.bgg_id, action_type: "favorite" }),
       });
       setFavorited(data.status === "added");
+    } catch {}
+  };
+
+  const toggleWant = async () => {
+    if (!user) return;
+    try {
+      const data = await apiFetch<{ status: string }>("/actions/toggle", {
+        method: "POST", credentials: "include",
+        body: JSON.stringify({ bgg_id: game.bgg_id, action_type: "wishlist" }),
+      });
+      setWanted(data.status === "added");
     } catch {}
   };
 
@@ -196,6 +212,17 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                 {owned ? tp("owned") : tp("own")}
               </button>
+              <button onClick={toggleWant}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all"
+                style={{
+                  background: wanted ? 'rgba(56,189,248,0.12)' : 'var(--color-surface)',
+                  border: `1px solid ${wanted ? 'rgba(56,189,248,0.3)' : 'var(--color-border)'}`,
+                  color: wanted ? '#38BDF8' : '#CBD5E1'
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                {wanted ? tp("wanted") : tp("want")}
+              </button>
               <div className="flex items-center gap-0.5 ml-2">
                 {[1,2,3,4,5,6,7,8,9,10].map((n) => (
                   <button key={n} onClick={() => submitRating(n)}
@@ -226,6 +253,24 @@ export default function GameDetailClient({ game, similarGames }: { game: Game; s
               </div>
             </div>
           )}
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => toggleCompare(game.bgg_id)}
+              disabled={!inComparison && compareFull}
+              title={!inComparison && compareFull ? tcmp("full") : undefined}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-all disabled:opacity-50"
+              style={{
+                background: inComparison ? 'rgba(217,119,6,0.12)' : 'var(--color-surface)',
+                border: `1px solid ${inComparison ? 'rgba(217,119,6,0.35)' : 'var(--color-border)'}`,
+                color: inComparison ? '#FBBF24' : '#CBD5E1',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></svg>
+              {inComparison ? tcmp("added") : tcmp("add")}
+            </button>
+          </div>
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatBox

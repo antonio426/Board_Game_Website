@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { Link } from "@/i18n/routing";
 import { apiFetch } from "@/lib/api";
 import GameImage, { gameImageUrl } from "@/components/GameImage";
+import { useCompare } from "@/hooks/useCompare";
 import GameFilterPanel, { type Facets, type TagVocabulary } from "@/components/GameFilterPanel";
 import {
   DEFAULT_FILTERS,
@@ -64,6 +65,8 @@ const SORT_LABEL_KEYS: Record<string, string> = {
 function GamesPageInner() {
   const t = useTranslations("games");
   const tc = useTranslations("common");
+  const tcmp = useTranslations("compare");
+  const { ids: compareIds, toggle: toggleCompare, isFull: compareFull } = useCompare();
   const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -273,7 +276,29 @@ function GamesPageInner() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {games.map((game) => (
-              <Link key={game.bgg_id} href={`/games/${game.bgg_id}`} className="game-card group">
+              <div key={game.bgg_id} className="relative">
+              {/* The compare toggle is a sibling of the card link, not a child:
+                  a button inside an anchor navigates before it can fire. */}
+              <button
+                type="button"
+                onClick={() => toggleCompare(game.bgg_id)}
+                disabled={!compareIds.includes(game.bgg_id) && compareFull}
+                aria-label={compareIds.includes(game.bgg_id) ? tcmp("added") : tcmp("add")}
+                title={compareIds.includes(game.bgg_id) ? tcmp("added") : compareFull ? tcmp("full") : tcmp("add")}
+                className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40"
+                style={{
+                  background: compareIds.includes(game.bgg_id) ? "rgba(217,119,6,0.9)" : "rgba(15,23,42,0.75)",
+                  border: "1px solid var(--color-border)",
+                  color: compareIds.includes(game.bgg_id) ? "#fff" : "#CBD5E1",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  {compareIds.includes(game.bgg_id)
+                    ? <polyline points="20 6 9 17 4 12" />
+                    : <><rect x="3" y="4" width="7" height="16" rx="1" /><rect x="14" y="4" width="7" height="16" rx="1" /></>}
+                </svg>
+              </button>
+              <Link href={`/games/${game.bgg_id}`} className="game-card group block">
                 <div className="aspect-[4/3] overflow-hidden" style={{ background: "var(--color-muted)" }}>
                   <GameImage src={gameImageUrl(game)} alt={game.name_en} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                 </div>
@@ -292,6 +317,7 @@ function GamesPageInner() {
                   </div>
                 </div>
               </Link>
+              </div>
             ))}
           </div>
 

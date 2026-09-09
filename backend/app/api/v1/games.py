@@ -16,6 +16,8 @@ from app.core.filters import (
 from app.core.quality import merge_filters, quality_gate
 from app.core.search import build_name_query, paged_search, rank_by_relevance, rerank_semantic
 from app.core import vocab
+from app.core.formatting import format_game, format_games, tag_translations
+from app.core.projections import COMPARE_PROJECTION, LIST_PROJECTION
 from app.core.zh_query import embedding_query
 from app.recommenders.embedding import search_similar, semantic_enabled
 
@@ -36,59 +38,6 @@ SORT_MAP = {
 }
 DEFAULT_SORT = "quality"
 
-# A list response is a grid of cards: name, art, the numbers on the card, and
-# the tags behind the chips. Sending the whole document instead shipped every
-# game's full English description plus the enricher's bookkeeping — a page of
-# 20 games was 100 KB, of which the descriptions alone were three quarters, and
-# nothing on the client ever read them. Detail pages still get the full
-# document from `/games/{bgg_id}`.
-#
-# `aliases`, `is_expansion` and `quality_score` are here because `relevance`
-# ranks on them, not because the client shows them.
-LIST_FIELDS = (
-    "bgg_id", "name_en", "name_zh", "aliases",
-    "image", "thumbnail", "local_image", "local_thumbnail",
-    "min_players", "max_players", "best_players", "recommended_players",
-    "min_playtime", "max_playtime", "min_age", "player_age",
-    "year_published", "language_dependence",
-    "bgg_rating", "bgg_avg_rating", "bgg_rank", "bgg_weight", "users_rated",
-    "quality_score", "is_expansion", "series",
-    "categories", "mechanics", "designers",
-)
-LIST_PROJECTION = {field: 1 for field in LIST_FIELDS}
-
-
-def _format_game(doc: dict, locale: str = "en", translations: dict | None = None) -> dict:
-    """Locale-aware game formatting: zh → name_zh priority, local images.
-
-    `translations` is the tag vocabulary, hoisted by `_format_games` so a page
-    of results loads it once rather than per game.
-    """
-    doc["id"] = str(doc.pop("_id", ""))
-    vocab.normalize_tags_with(doc, translations or {})
-
-    if locale and locale.startswith("zh"):
-        display_name = doc.get("name_zh") or doc.get("name_en") or ""
-        doc["display_name"] = display_name
-    else:
-        doc["display_name"] = doc.get("name_en") or doc.get("name_zh") or ""
-
-    bgg_id = doc.get("bgg_id")
-    if not doc.get("local_thumbnail") and bgg_id:
-        doc["local_thumbnail"] = f"/thumbnails/{bgg_id}.jpg"
-    if not doc.get("local_image") and bgg_id:
-        doc["local_image"] = f"/images/{bgg_id}.jpg"
-
-    return doc
-
-
-async def _tag_translations() -> dict[str, dict[str, str]]:
-    return {field: await vocab.zh_map(field) for field in vocab.TAG_COLLECTIONS}
-
-
-async def _format_games(docs: list[dict], locale: str = "en") -> list[dict]:
-    translations = await _tag_translations()
-    return [_format_game(doc, locale, translations) for doc in docs]
 
 
 def _cache_key(prefix: str, **kwargs) -> str:
@@ -142,7 +91,7 @@ async def random_game(locale: str = Query("en")):
     docs = await mongo_db.board_games.aggregate(pipeline).to_list(length=1)
     if not docs:
         return {"error": "no_games"}
-    return _format_game(docs[0], locale, await _tag_translations())
+    return format_game(docs[0], locale, await tag_translations())
 
 
 @router.get("")
@@ -211,7 +160,7 @@ async def list_games(
         mongo_db.board_games, filter_query, q, page, per_page, sort_key,
         relevance_rank=sort == DEFAULT_SORT, projection=LIST_PROJECTION,
     )
-    games = await _format_games(docs, locale)
+    games = await format_games(docs, locale)
 
     result = {
         "games": games,
@@ -443,7 +392,7 @@ async def game_facets(
         _run_facet(scoped, stages) for scoped, stages in zip(scopes, stage_sets)
     ))
 
-    translations = await _tag_translations()
+    translations = await tag_translations()
 
     def tag_rows(field: str) -> list[dict]:
         labels = translations.get(field, {})
@@ -585,7 +534,7 @@ async def search_games(
         )
 
     result = {
-        "games": await _format_games(docs, locale),
+        "games": await format_games(docs, locale),
         "total": total,
         "page": page,
         "per_page": per_page,
@@ -594,6 +543,76 @@ async def search_games(
     }
     _set_cache(cache_key, result, ttl=120)
     return result
+
+
+# Four is where a comparison table stops being readable on a laptop, and the
+# point of the page is to decide, not to browse.
+MAX_COMPARE_GAMES = 4
+
+
+def _tag_set(game: dict, field: str) -> set[str]:
+    return {tag["name"] for tag in game.get(field) or [] if tag.get("name")}
+
+
+def _tag_labels(games: list[dict], field: str) -> dict[str, dict]:
+    """English name -> the `{id, name, name_zh}` object, so both locales work."""
+    return {
+        tag["name"]: tag
+        for game in games
+        for tag in game.get(field) or []
+        if tag.get("name")
+    }
+
+
+@router.get("/compare")
+async def compare_games(ids: str = Query(..., description="Comma separated bgg_id list"), locale: str = Query("en")):
+    """Put a few games side by side, with what they share called out.
+
+    Two games having eight categories each is not a comparison; which two of
+    those they have in common, and what each one has that the other does not,
+    is. The overlap is computed here so both locales and every client agree on
+    it — and because the client would otherwise have to know that a tag is an
+    object with three name fields.
+
+    Expansions and unranked games are deliberately not filtered out: the caller
+    picked these games by hand.
+    """
+    requested: list[int] = []
+    for part in ids.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            bgg_id = int(part)
+        except ValueError:
+            continue
+        if bgg_id not in requested:
+            requested.append(bgg_id)
+    requested = requested[:MAX_COMPARE_GAMES]
+
+    if not requested:
+        return {"games": [], "shared": {"categories": [], "mechanics": []}, "unique": {}}
+
+    docs = await mongo_db.board_games.find(
+        {"bgg_id": {"$in": requested}}, COMPARE_PROJECTION
+    ).to_list(length=MAX_COMPARE_GAMES)
+    games = await format_games(docs, locale)
+    # The caller's order is the column order they chose.
+    games.sort(key=lambda game: requested.index(game["bgg_id"]))
+
+    shared: dict[str, list[dict]] = {}
+    unique: dict[str, dict[str, list[dict]]] = {}
+    for field in ("categories", "mechanics"):
+        labels = _tag_labels(games, field)
+        sets = [_tag_set(game, field) for game in games]
+        common = set.intersection(*sets) if len(sets) > 1 else set()
+        shared[field] = [labels[name] for name in sorted(common)]
+        for game, tags in zip(games, sets):
+            unique.setdefault(str(game["bgg_id"]), {})[field] = [
+                labels[name] for name in sorted(tags - common)
+            ]
+
+    return {"games": games, "shared": shared, "unique": unique}
 
 
 @router.get("/{bgg_id}")
@@ -607,7 +626,7 @@ async def get_game(bgg_id: int, locale: str = Query("en")):
     if not game:
         return {"error": "not_found"}
 
-    _format_game(game, locale, await _tag_translations())
+    format_game(game, locale, await tag_translations())
 
     _set_cache(cache_key, game, ttl=300)
     return game

@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request, Depends
 
 from app.core.database import mongo_db
+from app.core.formatting import format_games
+from app.core.projections import LIST_PROJECTION
 from app.core.security import decode_access_token
 from app.models.action import UserActionCreate, ActionType
 
@@ -81,7 +83,7 @@ async def record_batch(actions: list[UserActionCreate], request: Request):
 
 
 @router.get("/collection/me")
-async def get_my_collection(request: Request, limit: int = 100):
+async def get_my_collection(request: Request, limit: int = 100, locale: str = "en"):
     user_id = _get_user_id(request)
     if not user_id:
         return {"items": []}
@@ -92,7 +94,10 @@ async def get_my_collection(request: Request, limit: int = 100):
         {"$group": {
             "_id": "$bgg_id",
             "bgg_id": {"$first": "$bgg_id"},
-            "action_type": {"$first": "$action_type"},
+            # A game can be owned and rated and on the wishlist at once. Taking
+            # the first action type meant it showed up in one section only, and
+            # which one depended on the order it happened to be saved in.
+            "action_types": {"$addToSet": "$action_type"},
             "rating": {"$max": "$rating"},
             "created_at": {"$first": "$created_at"},
         }},
@@ -102,18 +107,20 @@ async def get_my_collection(request: Request, limit: int = 100):
     items = await mongo_db.user_actions.aggregate(pipeline).to_list(length=limit)
 
     bgg_ids = [it["bgg_id"] for it in items]
-    games_cursor = mongo_db.board_games.find({"bgg_id": {"$in": bgg_ids}})
-    games_map: dict[int, dict] = {}
-    async for doc in games_cursor:
-        doc["id"] = str(doc.pop("_id"))
-        games_map[doc["bgg_id"]] = doc
+    # A collection page is a grid of cards, same as any list: 100 whole
+    # documents were mostly English descriptions nothing on the page reads.
+    games_cursor = mongo_db.board_games.find({"bgg_id": {"$in": bgg_ids}}, LIST_PROJECTION)
+    docs = await games_cursor.to_list(length=limit)
+    # Same formatting as every other list of games, so the page reads
+    # `display_name` instead of choosing a language for itself.
+    games_map = {game["bgg_id"]: game for game in await format_games(docs, locale)}
 
     result = []
     for it in items:
         game = games_map.get(it["bgg_id"], {})
         result.append({
             "bgg_id": it["bgg_id"],
-            "action_type": it["action_type"],
+            "action_types": it.get("action_types") or [],
             "rating": it.get("rating"),
             "added_at": it["created_at"].isoformat() if it.get("created_at") else None,
             "game": game,

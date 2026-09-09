@@ -129,7 +129,11 @@
     "publishers": "Publishers:",
     "emptyCollection": "No games in your collection yet. Start exploring!",
     "signInToSave": "Sign in to save this game",
-    "signInBenefits": "Keep your collection across devices and get recommendations shaped by it"
+    "signInBenefits": "Keep your collection across devices and get recommendations shaped by it",
+    "wishlist": "Want to play",
+    "want": "Want to play",
+    "wanted": "On my list",
+    "myRating": "My rating"
   },
   "games": {
     "title": "Board Games",
@@ -242,5 +246,21 @@
   "tags": {
     "title": "Browse by Tag",
     "subtitle": "Pick a category or mechanic to find similar games."
+  },
+  "compare": {
+    "title": "Compare games",
+    "add": "Compare",
+    "added": "In comparison",
+    "full": "Comparing four games already",
+    "selected": "{count} selected",
+    "open": "Compare",
+    "clear": "Clear",
+    "remove": "Remove",
+    "empty": "Pick a few games and their numbers line up side by side here.",
+    "browse": "Browse games",
+    "shared": "What they have in common",
+    "noShared": "No categories or mechanics in common.",
+    "uniqueTags": "Only this one",
+    "minAge": "Age"
   }
 }

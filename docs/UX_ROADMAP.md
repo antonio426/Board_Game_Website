@@ -55,7 +55,7 @@
 - **C5.** Filter 組合不能儲存為 preset / share link
 
 ### D. 使用者帳號與收藏
-- **D1.** 只有 favorite/own/rate，沒有「想玩」狀態
+- **D1.** ✅ 已補「想玩」狀態（wishlist）
 - **D2.** 沒有「遊玩次數」「上次遊玩」紀錄
 - **D3.** 沒有自訂清單（user 可以建多個 list 分類管理）
 - **D4.** 沒有 export collection（CSV / BGG XML 格式）
@@ -111,7 +111,7 @@
 ### Tier 3 — big effort（1-2 天 each，需先確認優先度）
 | # | 工作 | 效益 |
 |---|---|---|
-| T3.1 | **C6** 比較遊戲 side-by-side | 採購決策 |
+| T3.1 ✅ | **C6** 比較遊戲 side-by-side | 採購決策 |
 | T3.2 | **D3** 自訂清單（多個 list） | 收藏管理 |
 | T3.3 | **D4** Export collection（CSV / BGG XML） | 資料可攜 |
 | T3.4 | **F1** Chat-based survey | 對話體驗 |
@@ -273,3 +273,45 @@
 兩份 i18n JSON 都能 parse 且鍵值對齊；`/zh`、`/zh/games`、`/zh/games/{id}`、`/en/games/{id}`
 四頁 SSR 200，登入 CTA、放大觸發點、繁體中文描述都出現在輸出裡。lightbox 開闔與最近瀏覽
 的寫入是瀏覽器端行為，只驗到 render 與型別，實際點擊仍需在瀏覽器確認一次。
+
+
+---
+
+## 4d. Sprint 3：決策閉環（比較 + 想玩清單）
+
+站上原本可以搜尋、篩選、看推薦，但**沒有任何把選擇收斂成決定的出口**——產品目標是
+「帶著 3–5 款真的會買的遊戲離開」，而使用者走到最後一步時只能自己開四個分頁。
+
+### 做了什麼
+
+| 項目 | 內容 |
+|---|---|
+| `GET /api/v1/games/compare?ids=` | 一次取回最多四款，並算出它們的**共同**分類／機制，以及每款**獨有**的部分。標籤回傳完整物件（`name` + `name_zh`），兩個語系都直接可用 |
+| `/[locale]/compare` | 並排表格：評分、評分人數、人數（含最佳人數）、時長、複雜度、適齡、年份、獨有標籤；數值列會把唯一的最高者標綠 |
+| `hooks/useCompare.ts` | 選取狀態放 localStorage，跨頁面累積，上限四款 |
+| `components/CompareBar.tsx` | 固定在底部的提示條，任何頁面都看得到目前選了幾款 |
+| 列表卡片 + 詳情頁 | 都能一鍵加入／移出比較 |
+| 「想玩」狀態 | `wishlist` 這個 action type 後端本來就有、前端從沒開出來；詳情頁加按鈕，收藏頁加專屬區塊 |
+
+### 途中修掉的
+
+- **收藏頁一款遊戲只會出現在一個區塊**：`/actions/collection/me` 的 `$group` 用
+  `{"$first": "$action_type"}`，同時「收藏 + 擁有 + 評分」的遊戲只留下最先被存的那一種，
+  出現在哪一區取決於當初的儲存順序。改成 `$addToSet` 回傳 `action_types` 陣列。
+- **收藏頁不分語系地顯示 `name_zh || name_en`**，英文介面會看到中文名。改成走
+  `display_name`——CLAUDE.md 寫著語系處理屬於 `_format_game`，而這個端點根本沒經過它。
+  順帶把格式化邏輯抽成 `app/core/formatting.py`，games 與 actions 兩個 router 共用。
+- **收藏頁一次回 100 份完整文件**，其中大部分是沒人讀的英文描述。改用同一份
+  `app/core/projections.py::LIST_PROJECTION`。
+- 收藏頁四個區塊本來是三份幾乎相同的 JSX，抽成 `CollectionSection`，加第四個區塊才不會
+  變成第四份複製品。
+
+### 驗證
+
+`tsc --noEmit` 與 `npm run lint` 無錯誤；兩份 i18n JSON 鍵值雙向對齊；
+`/zh/compare`、`/en/compare`、`/zh/games`、`/zh/games/{id}` 皆 200；
+compare 端點對兩款同類遊戲（展翅翱翔 vs 仙境幽谷）算出 2 個共同分類與 5 個共同機制，
+上限四款與非法 id 都正確處理。Golden set 51 題在重構後仍全過。
+
+拖放排序、比較結果匯出、以及「把比較結果存成清單」留給之後——目前四款上限已經覆蓋
+「在兩三款之間下決定」這個實際場景。
